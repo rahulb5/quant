@@ -1,0 +1,37 @@
+# Environment / secrets
+.env
+
+# Node
+node_modules/
+
+# Claude memory
+memory/
+
+# Database
+*.db
+*.duckdb
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+quant.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual env
+venv/
+.venv/
+env/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+logs/
+
+# OS
+.DS_Store
