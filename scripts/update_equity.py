@@ -1,10 +1,11 @@
 """
 scripts/update_equity.py
 
-Incrementally updates equity prices for all registered assets.
+Incrementally updates equity prices for all registered assets, including
+equity indices (asset IDs 100001–100015) registered via fetch_equity.py --indices.
 
 Strategy:
-  - Tickers with NO data   → collect_batch() from 2000-01-01 to today
+  - Tickers with NO data   → collect_batch() from 1970-01-01 to today
   - Tickers WITH data      → collect_batch() from last_date + 1 to today
                              (grouped by last date, batched 100 at a time)
 
@@ -58,12 +59,12 @@ for r in last_date_rows:
 # ── Split by from_date ────────────────────────────────────────────────────────
 
 # Group assets by the from_date they need so we can batch tickers together.
-# Tickers with no data use '2000-01-01'; others use last_date + 1 day.
+# Tickers with no data use '1970-01-01'; others use last_date + 1 day.
 groups: dict[str, list[dict]] = defaultdict(list)
 
 for asset_id, ticker in all_assets.items():
     if asset_id not in last_date_by_id:
-        from_date = "2000-01-01"
+        from_date = "1970-01-01"
     else:
         from_date = (
             date.fromisoformat(last_date_by_id[asset_id]) + timedelta(days=1)
@@ -74,11 +75,11 @@ for asset_id, ticker in all_assets.items():
 
     groups[from_date].append({"ticker": ticker, "asset_id": asset_id})
 
-no_data_count = len(groups.get("2000-01-01", []))
-needs_update_count = sum(len(v) for k, v in groups.items() if k != "2000-01-01")
+no_data_count = len(groups.get("1970-01-01", []))
+needs_update_count = sum(len(v) for k, v in groups.items() if k != "1970-01-01")
 already_current = len(all_assets) - no_data_count - needs_update_count
 
-print(f"  {no_data_count} tickers with no data      → full history from 2000-01-01")
+print(f"  {no_data_count} tickers with no data      → full history from 1970-01-01")
 print(f"  {needs_update_count} tickers with partial data  → incremental fill")
 print(f"  {already_current} tickers already up to date\n")
 
@@ -87,13 +88,13 @@ print(f"  {already_current} tickers already up to date\n")
 results: dict[str, int] = {}
 chunk_size = 100
 
-# Sort so the full-history group ("2000-01-01") runs first
+# Sort so the full-history group ("1970-01-01") runs first
 sorted_from_dates = sorted(groups.keys())
 
 for from_date in sorted_from_dates:
     group_assets = groups[from_date]
     label = (
-        "full history (no data)" if from_date == "2000-01-01"
+        "full history (no data)" if from_date == "1970-01-01"
         else f"from {from_date}"
     )
     total_batches = math.ceil(len(group_assets) / chunk_size)

@@ -302,65 +302,62 @@ for endpoint in endpoints_to_run:
         all_cols = shared_cols + type_cols
         upsert_sql = _build_upsert_sql(all_cols)
 
+        # Phase 1: pre-process all rows and resolve series IDs (outside transactions)
         series_cache: dict[str, int] = {}
-        rows_upserted = 0
+        param_rows: list[list] = []
         first_series_id: int | None = None
 
-        # Process in batches of 500 rows per transaction
+        for row in raw_rows:
+            mkt_code = (
+                row.get("cftc_market_code")
+                or row.get("cftc_contract_market_code", "UNKNOWN")
+            )
+            series_code = f"{code_prefix}.{mkt_code}"
+            market_name = row.get("market_and_exchange_names", "")
+
+            if series_code not in series_cache:
+                series_cache[series_code] = _ensure_series(series_code, market_name)
+            series_id = series_cache[series_code]
+            if first_series_id is None:
+                first_series_id = series_id
+
+            report_date_str = row.get("report_date_as_yyyy_mm_dd", "")[:10]
+            if not report_date_str:
+                continue
+            try:
+                release_date_str = (
+                    date.fromisoformat(report_date_str) + timedelta(days=3)
+                ).isoformat()
+            except ValueError:
+                continue
+
+            shared_vals = [
+                series_id,
+                report_date_str,
+                release_date_str,
+                report_type,
+                market_name,
+                mkt_code,
+                row.get("commodity_code"),
+                row.get("exchange_name"),
+                row.get("commodity"),
+                _parse_float(row.get(oi_field)),
+            ]
+            type_vals = [_parse_float(row.get(api_field)) for api_field in field_map]
+            param_rows.append(shared_vals + type_vals)
+
+        # Phase 2: upsert in batches — no mutable closures needed
         BATCH = 500
-        for batch_start in range(0, len(raw_rows), BATCH):
-            batch = raw_rows[batch_start: batch_start + BATCH]
+        rows_upserted = 0
+        for batch_start in range(0, len(param_rows), BATCH):
+            batch = param_rows[batch_start: batch_start + BATCH]
 
             def steps(q, _batch=batch) -> None:
-                nonlocal rows_upserted, first_series_id, series_cache
-
-                for row in _batch:
-                    # --- Resolve market code and series ---
-                    mkt_code = (
-                        row.get("cftc_market_code")
-                        or row.get("cftc_contract_market_code", "UNKNOWN")
-                    )
-                    series_code = f"{code_prefix}.{mkt_code}"
-                    market_name = row.get("market_and_exchange_names", "")
-
-                    if series_code not in series_cache:
-                        series_cache[series_code] = _ensure_series(series_code, market_name)
-                    series_id = series_cache[series_code]
-                    if first_series_id is None:
-                        first_series_id = series_id
-
-                    # --- Dates ---
-                    report_date_str = row.get("report_date_as_yyyy_mm_dd", "")[:10]
-                    if not report_date_str:
-                        return
-                    try:
-                        release_date_str = (
-                            date.fromisoformat(report_date_str) + timedelta(days=3)
-                        ).isoformat()
-                    except ValueError:
-                        return
-
-                    # --- Shared values ---
-                    shared_vals = [
-                        series_id,
-                        report_date_str,
-                        release_date_str,
-                        report_type,
-                        market_name,
-                        mkt_code,
-                        row.get("commodity_code"),
-                        row.get("exchange_name"),
-                        row.get("commodity"),
-                        _parse_float(row.get(oi_field)),
-                    ]
-
-                    # --- Type-specific values ---
-                    type_vals = [_parse_float(row.get(api_field)) for api_field in field_map]
-
-                    q(upsert_sql, shared_vals + type_vals)
-                    rows_upserted += 1
+                for params in _batch:
+                    q(upsert_sql, params)
 
             db.transaction(steps)
+            rows_upserted += len(batch)
 
         first_date = raw_rows[0].get("report_date_as_yyyy_mm_dd", today)[:10]
         if first_series_id is not None:

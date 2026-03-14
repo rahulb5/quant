@@ -25,13 +25,20 @@ from src.db.client import db
 # ── Series catalogue ──────────────────────────────────────────────────────────
 
 SERIES_CODES: list[str] = [
-    # Daily
-    "DFF", "T10Y2Y", "T10YIE", "DTWEXBGS", "BAMLH0A0HYM2",
+    # Daily — rates
+    "DFF", "DTB3", "DGS2", "DGS5", "DGS10", "DGS30",
+    # Daily — spreads / credit
+    "T10Y2Y", "T10YIE", "BAMLH0A0HYM2", "BAMLC0A0CM", "BAMLC0A4CBBB",
+    "BAMLEMCBPIOAS",
+    # Daily — other
+    "DTWEXBGS",
     # Weekly
-    "ICSA", "WM2NS",
+    "ICSA", "WM2NS", "WALCL", "ECBASSETSW",
     # Monthly
-    "CPIAUCSL", "CPILFESL", "UNRATE", "PAYEMS", "INDPRO",
-    "RETAILSMNSA", "HOUST", "PCE",
+    "CPIAUCSL", "CPILFESL", "PPIACO", "UNRATE", "PAYEMS", "INDPRO",
+    "RETAILSMNSA", "HOUST", "PCE", "M2SL", "JPNASSETS",
+    # Monthly — international yields
+    "IRLTLT01DEM156N", "IRLTLT01GBM156N", "IRLTLT01FRM156N", "IRLTLT01JPM156N",
     # Quarterly
     "GDP", "GDPCTPI",
 ]
