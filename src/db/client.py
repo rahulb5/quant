@@ -52,6 +52,17 @@ class Database:
         cols = [d[0] for d in result.description]
         return [dict(zip(cols, row)) for row in result.fetchall()]
 
+    def query_df(self, sql: str, params: list[Any] | None = None) -> Any:
+        """Run a SELECT and return results as a pandas DataFrame."""
+        already_open = self._con is not None
+        self.open()
+        try:
+            result = self._con.execute(sql, params or [])  # type: ignore[union-attr]
+            return result.df()
+        finally:
+            if not already_open:
+                self.close()
+
     def run(self, sql: str, params: list[Any] | None = None) -> int:
         """Run an INSERT/UPDATE/DELETE and return rows changed."""
         self._assert_open()

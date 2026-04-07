@@ -25,21 +25,38 @@ from src.db.client import db
 # ── Series catalogue ──────────────────────────────────────────────────────────
 
 SERIES_CODES: list[str] = [
-    # Daily — rates
-    "DFF", "DTB3", "DGS2", "DGS5", "DGS10", "DGS30",
-    # Daily — spreads / credit
-    "T10Y2Y", "T10YIE", "BAMLH0A0HYM2", "BAMLC0A0CM", "BAMLC0A4CBBB",
-    "BAMLEMCBPIOAS",
-    # Daily — other
-    "DTWEXBGS",
-    # Weekly
-    "ICSA", "WM2NS", "WALCL", "ECBASSETSW",
-    # Monthly
-    "CPIAUCSL", "CPILFESL", "PPIACO", "UNRATE", "PAYEMS", "INDPRO",
-    "RETAILSMNSA", "HOUST", "PCE", "M2SL", "JPNASSETS",
-    # Monthly — international yields
-    "IRLTLT01DEM156N", "IRLTLT01GBM156N", "IRLTLT01FRM156N", "IRLTLT01JPM156N",
-    # Quarterly
+    # ── Daily financial ──
+    "DFF", "T10Y2Y", "T10YIE", "DTWEXBGS", "BAMLH0A0HYM2",
+    # Treasury yield curve (daily)
+    "DGS2", "DGS5", "DGS10", "DGS30",
+    # Credit spreads (daily)
+    "BAMLC0A0CM", "BAMLC0A4CBBB",
+    # Volatility (daily)
+    "VIXCLS",
+
+    # ── Weekly ──
+    "ICSA", "WM2NS",
+    # Fed balance sheet (weekly)
+    "WALCL",
+
+    # ── Monthly ──
+    "CPIAUCSL", "CPILFESL", "UNRATE", "PAYEMS", "INDPRO",
+    "RETAILSMNSA", "HOUST", "PCE",
+    # Additional monthly macro
+    "CSUSHPINSA", "DGORDER", "JTSJOL", "RSXFS",
+    # Money/credit (monthly)
+    "TOTRESNS",
+    # Survey / sentiment (monthly)
+    "UMCSENT", "MICH",
+    # International (monthly)
+    "USALOLITONOSTSAM",   # US Leading Indicator (OECD CLI)
+    "OABORAGNOSTSAM",     # OECD Composite Leading Indicator
+    "CPALTT01CNM657N",    # China CPI
+    "CPALTT01EZM659N",    # Eurozone CPI
+    "CPALTT01JPM659N",    # Japan CPI
+    "CPALTT01GBM659N",    # UK CPI
+
+    # ── Quarterly ──
     "GDP", "GDPCTPI",
 ]
 
