@@ -1,13 +1,14 @@
 """
 scripts/update_commodities.py
 
-Incrementally updates commodity futures prices from Nasdaq Data Link.
+Incrementally updates commodity futures prices from Stooq.
 Fetches from last stored date + 1 day to today for each series.
 
 Run from the project root with the venv activated:
     python scripts/update_commodities.py
 """
 
+import time
 from datetime import date, timedelta
 
 from src.db.client import db
@@ -49,11 +50,11 @@ for r in last_date_rows:
     last = r["last_date"]
     last_date_by_id[aid] = last.isoformat() if hasattr(last, "isoformat") else str(last)[:10]
 
-# ── Build CHRIS code lookup from catalogue ────────────────────────────────────
+# ── Build Stooq ticker lookup from catalogue ──────────────────────────────────
 
-chris_lookup: dict[str, str] = {}
+stooq_lookup: dict[str, str] = {}
 for entry in collector.get_all_tickers():
-    chris_lookup[entry["ticker"]] = entry["chris_code"]
+    stooq_lookup[entry["ticker"]] = entry["stooq"]
 
 # ── Update each asset ─────────────────────────────────────────────────────────
 
@@ -61,11 +62,11 @@ updated = 0
 already_current = 0
 results: dict[str, int] = {}
 
-for row in asset_rows:
+for i, row in enumerate(asset_rows):
     asset_id = int(row["asset_id"])
     ticker = str(row["ticker"])
 
-    if ticker not in chris_lookup:
+    if ticker not in stooq_lookup:
         continue
 
     if asset_id in last_date_by_id:
@@ -74,18 +75,28 @@ for row in asset_rows:
             already_current += 1
             continue
     else:
-        from_date = "2000-01-01"
+        from_date = None  # fetch everything
+
+    print(f"  {ticker:<8}  ...", end="", flush=True)
 
     rows = collector.fetch_single(
-        chris_code=chris_lookup[ticker],
+        stooq_ticker=stooq_lookup[ticker],
         asset_id=asset_id,
         ticker=ticker,
         from_date=from_date,
         to_date=today,
     )
+
     if rows > 0:
         results[ticker] = rows
         updated += 1
+        print(f"  {rows:>7,} rows")
+    else:
+        print(f"  up to date")
+
+    # Be polite to Stooq
+    if i < len(asset_rows) - 1:
+        time.sleep(1)
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 
