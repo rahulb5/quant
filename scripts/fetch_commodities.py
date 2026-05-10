@@ -1,8 +1,8 @@
 """
 scripts/fetch_commodities.py
 
-Fetches daily OHLCV for commodity futures (front through 4th month)
-from Nasdaq Data Link (CHRIS dataset) and stores them in quant.db.
+Fetches daily OHLCV for commodity futures (front-month continuous contracts)
+from Yahoo Finance and stores them in quant.db.
 
 Safe to re-run — existing rows are skipped via ON CONFLICT DO NOTHING.
 
@@ -12,8 +12,6 @@ Run from the project root with the venv activated:
     python scripts/fetch_commodities.py
 """
 
-from datetime import date
-
 from src.db.client import db
 from src.collectors.commodity import CommodityCollector
 
@@ -22,32 +20,27 @@ from src.collectors.commodity import CommodityCollector
 db.open()
 collector = CommodityCollector()
 
-from_date = "2000-01-01"
-to_date = date.today().isoformat()
-
 # ── Register assets & fetch ───────────────────────────────────────────────────
 
 all_tickers = collector.get_all_tickers()
-print(f"Fetching {len(all_tickers)} commodity futures series ({from_date} → {to_date})\n")
+print(f"Fetching {len(all_tickers)} commodity futures series from Yahoo Finance\n")
 
 results: dict[str, int] = {}
 failures: list[str] = []
 
 for entry in all_tickers:
-    ticker = entry["ticker"]
-    chris_code = entry["chris_code"]
-    name = entry["name"]
+    ticker       = entry["ticker"]
+    yahoo_ticker = entry["yahoo"]
+    name         = entry["name"]
 
-    print(f"  {ticker:<8} ({chris_code:<20})  ...", end="", flush=True)
+    print(f"  {ticker:<8} ({yahoo_ticker:<8})  ...", end="", flush=True)
 
     try:
         asset_id = collector.ensure_asset(ticker, name)
         rows = collector.fetch_single(
-            chris_code=chris_code,
+            yahoo_ticker=yahoo_ticker,
             asset_id=asset_id,
             ticker=ticker,
-            from_date=from_date,
-            to_date=to_date,
         )
         results[ticker] = rows
         print(f"  {rows:>7,} rows")
@@ -58,8 +51,8 @@ for entry in all_tickers:
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 total_rows = sum(results.values())
-with_data = [t for t, r in results.items() if r > 0]
-no_data = [t for t, r in results.items() if r == 0]
+with_data  = [t for t, r in results.items() if r > 0]
+no_data    = [t for t, r in results.items() if r == 0]
 
 print(f"\n── Summary ──────────────────────────────────────────")
 print(f"  Series requested     : {len(all_tickers)}")

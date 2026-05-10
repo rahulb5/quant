@@ -11,7 +11,8 @@ Four report types are fetched:
   tff_fut     — Traders in Financial Futures
 
 Usage:
-    python scripts/fetch_cot.py                              # incremental (last 2 weeks)
+    python scripts/fetch_cot.py                              # update: from last DB date (default)
+    python scripts/fetch_cot.py --mode incremental           # last 2 weeks hardcoded
     python scripts/fetch_cot.py --mode backfill              # full history
     python scripts/fetch_cot.py --report-type legacy_fut     # single report type
     python scripts/fetch_cot.py --mode backfill --report-type disagg_fut
@@ -45,7 +46,7 @@ ENDPOINTS: list[dict] = [
         "report_type":  "disagg_fut",
         "url":          "https://publicreporting.cftc.gov/resource/72hh-3qpy.json",
         "code_prefix":  "CFTC.DISAGG_FUT",
-        "oi_field":     "open_interest_fut",
+        "oi_field":     "open_interest_all",
     },
     {
         "report_type":  "tff_fut",
@@ -73,31 +74,31 @@ LEGACY_MAP: dict[str, str] = {
 }
 
 DISAGG_MAP: dict[str, str] = {
-    "prod_merc_positions_long_all":     "dis_pmpu_long",
-    "prod_merc_positions_short_all":    "dis_pmpu_short",
-    "swap_positions_long_all":          "dis_sd_long",
-    "swap__positions_short_all":        "dis_sd_short",     # CFTC double underscore
-    "swap__positions_spread_all":       "dis_sd_spread",
-    "m_money_positions_long_all":       "dis_mm_long",
-    "m_money_positions_short_all":      "dis_mm_short",
-    "m_money_positions_spread_all":     "dis_mm_spread",
-    "other_rept_positions_long_all":    "dis_or_long",
-    "other_rept_positions_short_all":   "dis_or_short",
-    "other_rept_positions_spread_all":  "dis_or_spread",
-    "nonrept_positions_long_all":       "dis_nr_long",
-    "nonrept_positions_short_all":      "dis_nr_short",
+    "prod_merc_positions_long":          "dis_pmpu_long",
+    "prod_merc_positions_short":         "dis_pmpu_short",
+    "swap_positions_long_all":           "dis_sd_long",
+    "swap__positions_short_all":         "dis_sd_short",      # CFTC double underscore
+    "swap__positions_spread_all":        "dis_sd_spread",
+    "m_money_positions_long_all":        "dis_mm_long",
+    "m_money_positions_short_all":       "dis_mm_short",
+    "m_money_positions_spread":          "dis_mm_spread",
+    "other_rept_positions_long":         "dis_or_long",
+    "other_rept_positions_short":        "dis_or_short",
+    "other_rept_positions_spread":       "dis_or_spread",
+    "nonrept_positions_long_all":        "dis_nr_long",
+    "nonrept_positions_short_all":       "dis_nr_short",
     # Trader counts
-    "traders_prod_merc_long_all":       "dis_pmpu_traders_long",
-    "traders_prod_merc_short_all":      "dis_pmpu_traders_short",
-    "traders_swap_long_all":            "dis_sd_traders_long",
-    "traders_swap_short_all":           "dis_sd_traders_short",
-    "traders_swap_spread_all":          "dis_sd_traders_spread",
-    "traders_m_money_long_all":         "dis_mm_traders_long",
-    "traders_m_money_short_all":        "dis_mm_traders_short",
-    "traders_m_money_spread_all":       "dis_mm_traders_spread",
-    "traders_other_rept_long_all":      "dis_or_traders_long",
-    "traders_other_rept_short_all":     "dis_or_traders_short",
-    "traders_other_rept_spread_all":    "dis_or_traders_spread",
+    "traders_prod_merc_long_all":        "dis_pmpu_traders_long",
+    "traders_prod_merc_short_all":       "dis_pmpu_traders_short",
+    "traders_swap_long_all":             "dis_sd_traders_long",
+    "traders_swap_short_all":            "dis_sd_traders_short",
+    "traders_swap_spread_all":           "dis_sd_traders_spread",
+    "traders_m_money_long_all":          "dis_mm_traders_long",
+    "traders_m_money_short_all":         "dis_mm_traders_short",
+    "traders_m_money_spread_all":        "dis_mm_traders_spread",
+    "traders_other_rept_long_all":       "dis_or_traders_long",
+    "traders_other_rept_short":          "dis_or_traders_short",
+    "traders_other_rept_spread":         "dis_or_traders_spread",
 }
 
 TFF_MAP: dict[str, str] = {
@@ -137,14 +138,30 @@ REPORT_TYPE_FIELD_MAP: dict[str, dict[str, str]] = {
     "tff_fut":     TFF_MAP,
 }
 
+# ── Targeted commodity contracts (CFTC 6-digit market codes) ─────────────────
+
+TARGET_MARKET_CODES: dict[str, str] = {
+    "067651": "Crude Oil WTI",
+    "023651": "Natural Gas",
+    "088691": "Gold",
+    "084691": "Silver",
+    "085692": "Copper",
+    "002602": "Corn",
+    "001602": "Wheat SRW",
+    "005602": "Soybeans",
+    "083731": "Coffee C",
+    "080732": "Sugar No 11",
+    "073732": "Cocoa",
+}
+
 # ── CLI args ──────────────────────────────────────────────────────────────────
 
 parser = argparse.ArgumentParser(description="Fetch CFTC COT data into quant.db")
 parser.add_argument(
     "--mode",
-    choices=["incremental", "backfill"],
-    default="incremental",
-    help="incremental: last 2 weeks (default). backfill: full history.",
+    choices=["update", "incremental", "backfill"],
+    default="update",
+    help="update: from last DB date, fallback 2 weeks (default). incremental: last 2 weeks. backfill: full history.",
 )
 parser.add_argument(
     "--report-type",
@@ -153,6 +170,11 @@ parser.add_argument(
     metavar="TYPE",
     help="Fetch a single report type (default: all four).",
 )
+parser.add_argument(
+    "--targeted",
+    action="store_true",
+    help="Fetch only the 11 target physical commodity contracts by CFTC market code.",
+)
 args = parser.parse_args()
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
@@ -160,16 +182,28 @@ args = parser.parse_args()
 db.open()
 
 today = date.today().isoformat()
-endpoints_to_run = (
-    [e for e in ENDPOINTS if e["report_type"] == args.report_type]
-    if args.report_type else ENDPOINTS
-)
+
+if args.targeted:
+    # Targeted mode: disagg_fut only, filtered to TARGET_MARKET_CODES
+    endpoints_to_run = [e for e in ENDPOINTS if e["report_type"] == "disagg_fut"]
+    targeted_codes   = list(TARGET_MARKET_CODES.keys())
+    print(
+        f"CFTC COT fetch  mode={args.mode}  targeted=True  "
+        f"contracts={len(targeted_codes)} physical commodities\n"
+    )
+else:
+    endpoints_to_run = (
+        [e for e in ENDPOINTS if e["report_type"] == args.report_type]
+        if args.report_type else ENDPOINTS
+    )
+    targeted_codes = None
+    print(
+        f"CFTC COT fetch  mode={args.mode}  "
+        f"reports={[e['report_type'] for e in endpoints_to_run]}\n"
+    )
 PAGE_SIZE = 10_000
 
-print(
-    f"CFTC COT fetch  mode={args.mode}  "
-    f"reports={[e['report_type'] for e in endpoints_to_run]}\n"
-)
+TWO_WEEKS_AGO = (date.today() - timedelta(weeks=2)).isoformat()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -183,24 +217,57 @@ def _fetch_page(url: str, limit: int, offset: int, where: str | None = None) -> 
     return resp.json()
 
 
-def _fetch_all_rows(url: str) -> list[dict]:
-    """Fetch all rows for an endpoint, paginating as needed."""
-    if args.mode == "incremental":
-        cutoff = (date.today() - timedelta(weeks=2)).isoformat()
-        where = f"report_date_as_yyyy_mm_dd >= '{cutoff}'"
+def _last_db_date(report_type: str) -> str | None:
+    """Return the latest report_date in cot_positions for this report_type, or None."""
+    rows = db.query(
+        "SELECT MAX(report_date) AS d FROM cot_positions WHERE report_type = ?",
+        [report_type],
+    )
+    val = rows[0]["d"] if rows else None
+    return str(val)[:10] if val else None
+
+
+def _fetch_all_rows(
+    url: str,
+    cutoff: str | None,
+    market_codes: list[str] | None = None,
+) -> list[dict]:
+    """Fetch all rows for an endpoint, paginating as needed.
+
+    cutoff:       ISO date string — fetch rows >= this date. None means full backfill.
+    market_codes: Optional list of cftc_contract_market_code values to restrict to.
+    """
+    def _build_where(cutoff: str | None, market_codes: list[str] | None) -> str | None:
+        parts: list[str] = []
+        if cutoff is not None:
+            parts.append(f"report_date_as_yyyy_mm_dd >= '{cutoff}'")
+        if market_codes:
+            quoted = ",".join(f"'{c}'" for c in market_codes)
+            parts.append(f"cftc_contract_market_code in ({quoted})")
+        return " AND ".join(parts) if parts else None
+
+    where = _build_where(cutoff, market_codes)
+
+    # Incremental (cutoff only, no backfill): single page is sufficient
+    if cutoff is not None and market_codes is None:
         rows = _fetch_page(url, PAGE_SIZE, 0, where=where)
-        print(f"    fetched {len(rows)} rows (incremental since {cutoff})")
+        print(f"    fetched {len(rows)} rows (since {cutoff})")
         return rows
 
-    # backfill: paginate until empty
+    # Backfill or targeted: paginate until the API returns fewer rows than PAGE_SIZE
+    label = "all dates" if cutoff is None else f"since {cutoff}"
+    if market_codes:
+        label += f", {len(market_codes)} market codes"
+
     all_rows: list[dict] = []
     offset = 0
     while True:
-        page = _fetch_page(url, PAGE_SIZE, offset)
+        page = _fetch_page(url, PAGE_SIZE, offset, where=where)
         if not page:
             break
         all_rows.extend(page)
-        print(f"    page offset={offset:>7,}  →  {len(all_rows):>7,} rows so far", flush=True)
+        print(f"    page offset={offset:>7,}  →  {len(all_rows):>7,} rows so far  ({label})", flush=True)
+        print(f"    [debug] page size={len(page)}, PAGE_SIZE={PAGE_SIZE} — stopping={'yes' if len(page) < PAGE_SIZE else 'no'}", flush=True)
         if len(page) < PAGE_SIZE:
             break
         offset += PAGE_SIZE
@@ -284,10 +351,19 @@ for endpoint in endpoints_to_run:
     oi_field    = endpoint["oi_field"]
     field_map   = REPORT_TYPE_FIELD_MAP[report_type]
 
-    print(f"── {report_type} ({'backfill' if args.mode == 'backfill' else 'incremental'}) ──")
+    if args.mode == "backfill":
+        cutoff = None
+    elif args.mode == "update":
+        last = _last_db_date(report_type)
+        cutoff = last if last else TWO_WEEKS_AGO
+        print(f"  last DB date: {last or f'none → fallback {TWO_WEEKS_AGO}'}")
+    else:  # incremental
+        cutoff = TWO_WEEKS_AGO
+
+    print(f"── {report_type} ({args.mode}{'' if cutoff is None else f' since {cutoff}'}) ──")
 
     try:
-        raw_rows = _fetch_all_rows(url)
+        raw_rows = _fetch_all_rows(url, cutoff, market_codes=targeted_codes)
         if not raw_rows:
             print(f"  no rows returned\n")
             continue
@@ -308,10 +384,17 @@ for endpoint in endpoints_to_run:
         first_series_id: int | None = None
 
         for row in raw_rows:
-            mkt_code = (
-                row.get("cftc_market_code")
-                or row.get("cftc_contract_market_code", "UNKNOWN")
-            )
+            if args.targeted:
+                # Use 6-digit contract code as primary identifier
+                mkt_code = (
+                    row.get("cftc_contract_market_code")
+                    or row.get("cftc_market_code", "UNKNOWN")
+                )
+            else:
+                mkt_code = (
+                    row.get("cftc_market_code")
+                    or row.get("cftc_contract_market_code", "UNKNOWN")
+                )
             series_code = f"{code_prefix}.{mkt_code}"
             market_name = row.get("market_and_exchange_names", "")
 
