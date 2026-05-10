@@ -19,6 +19,7 @@ quant.egg-info/
 dist/
 build/
 .eggs/
+*.ipynb_checkpoints/
 
 # Virtual env
 venv/
