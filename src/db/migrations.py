@@ -179,4 +179,28 @@ MIGRATIONS: list[Migration] = [
         );
         """,
     ),
+    Migration(
+        version=8,
+        description="Create experiments table",
+        sql="""
+        CREATE TABLE IF NOT EXISTS experiments (
+            id              TEXT    PRIMARY KEY,
+            hypothesis      TEXT    NOT NULL,
+            researcher      TEXT,
+            created_at      DATE    NOT NULL,
+            signal_name     TEXT    NOT NULL,
+            asset_class     TEXT    NOT NULL,
+            config_path     TEXT    NOT NULL,
+            status          TEXT    NOT NULL CHECK (status IN (
+                              'draft', 'running', 'complete', 'failed'
+                            )),
+            sharpe          DOUBLE,
+            cagr            DOUBLE,
+            max_drawdown    DOUBLE,
+            ann_turnover    DOUBLE,
+            conclusion      TEXT,
+            updated_at      TIMESTAMP NOT NULL DEFAULT now()
+        );
+        """,
+    ),
 ]

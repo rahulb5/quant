@@ -1,6 +1,6 @@
 # Architecture
 
-**Last audited:** 2026-10-04 (updated same-day after the collector unification + first signal module work below)
+**Last audited:** 2026-10-04 (updated same-day after the stray-artifact cleanup + experiment registry work below)
 **Audited by:** Claude Code (`/update-architecture` skill maintains this file — see bottom section)
 
 This document is the Phase 1 deliverable from `quant_research_os_build_plan.md`: an inventory and
@@ -60,21 +60,46 @@ This is the most mature part of the system — `src/backtest/`:
 - `backtest.py` — `run_backtest(weights, asset_returns, cost_bps, lag, name, ...)` →
   `BacktestReport`, a one-call wrapper over the above
 
-Current API takes **weights directly** — there is no signal → weight translation step, because
-that's exactly the Signal Layer / Portfolio Layer that doesn't exist yet (see Gaps).
+`run_backtest()` itself still takes **weights directly** — the signal → weight translation now
+exists, but one level up, in `src/experiments/` (below), not inside `src/backtest/`.
 
 ### How are experiments identified?
-They aren't. There is no `experiments/EXP-XXXX/` registry, no experiment config/result convention.
-A "result" today is whatever state a notebook was last run in.
+`src/experiments/` is a hybrid registry: a DuckDB `experiments` table (migration version 8 —
+`id`, `hypothesis`, `status`, `sharpe`, `cagr`, `max_drawdown`, `ann_turnover`, ...) for queryable
+metadata, plus a filesystem `experiments/EXP-000N/` directory per experiment holding
+`config.yaml`, `results.json`, `diagnostics.json`, `performance.parquet`, `charts/`, and
+`research_note.md`. `scripts/new_experiment.py` allocates the next ID and scaffolds the config;
+`scripts/run_experiment.py` (-> `src/experiments/runner.run_experiment()`) executes it end to end:
+config -> signal module -> weights/returns panels -> `run_backtest()` -> every artifact above,
+updating the registry row to `complete` (with headline metrics) or `failed` (with the error) on
+exit. **EXP-0001** (COT commercial positioning) is live and `complete` — the first experiment to
+close the full hypothesis -> experiment -> backtest -> report loop.
+
+Two supporting pieces make this reusable across asset classes rather than COT-specific:
+- `src/experiments/universe.py` — an `AssetUniverse` ABC (`asset_ids()` abstract;
+  `load_prices()`/`returns_panel()` concrete and shared) with `CommodityUniverse` (used by
+  EXP-0001) and `EquityUniverse` (built and tested, not yet exercised by any experiment) as sibling
+  subclasses. Adding crypto later is one more subclass plus a `UNIVERSE_REGISTRY` entry — no
+  changes elsewhere.
+- `src/experiments/portfolio.py` — `equal_weight_long_basket()`, a deliberately minimal
+  config-driven threshold rule (date/asset/signal column names all come from `config.portfolio`,
+  not hardcoded), not a general portfolio layer.
+
+A signal module plugs into this by exposing `load_data()`, `calculate_signal(*data, config)`, and
+a `SignalConfig` class — `cot_commercial_positioning.py` already does; this is the contract a
+future equities signal would follow too.
 
 ### Where are results stored?
-Inside the notebooks themselves (cell outputs, inline charts). Nothing is persisted outside
-`notebooks/signals/*.ipynb` as structured, queryable output.
+Both places now, depending on what's being asked: structured/queryable headline metrics live in
+the `experiments` DuckDB table; the full diagnostic suite (yearly/regime/correlation/beta/factor
+regression), the return series, and charts live under `experiments/EXP-000N/`. Pre-registry
+research (formulaic alphas, yield-curve regime) is still notebook-only, as described above.
 
 ### How is portfolio construction separated from signal research?
-It isn't — there is no portfolio layer at all (no `src/portfolio/`, no CVXPY, no optimizer). Not
-urgent yet: per the build plan, this is correctly deferred until multiple signals have survived
-research.
+Still no general portfolio/risk layer (no `src/portfolio/`, no CVXPY, no optimizer) — correctly
+deferred per the build plan. `src/experiments/portfolio.py`'s `equal_weight_long_basket()` is the
+narrow, intentional exception: a single inline rule needed to turn a signal into weights for
+`run_backtest()`, not a step toward a general optimizer.
 
 ### How are tests performed?
 `pytest`, coverage is improving but still uneven:
@@ -91,6 +116,11 @@ research.
   the `tests/` tree, not part of the suite.
 - `tests/signals/` — covers `src/signals/cot_commercial_positioning.py` (pure-pandas transforms,
   plus `load_data()` against an in-memory DB).
+- `tests/experiments/` — covers `universe` (asset-id resolution, returns-panel pivoting, and a
+  direct check that `resample='W-MON'` reproduces `weekly_prices_with_trend()`'s own dates),
+  `portfolio`, `registry` (CRUD against an in-memory DB), `config` (yaml round-trip), and one
+  happy-path + one failure-path integration test for `runner.run_experiment()` against a
+  monkeypatched signal.
 
 ### How does an AI agent interact with the repository?
 Via `CLAUDE.md` (Python env + DB conventions) and the persistent memory file at
@@ -112,15 +142,15 @@ don't exist — reasonable, since the experiment system they'd operate on doesn'
 | Backtest engine | `src/backtest/*.py` | **KEEP** | Most mature layer in the repo; ahead of where the build plan assumes this stage would be |
 | COT commercial positioning signal | `src/signals/cot_commercial_positioning.py` | **KEEP** | First signal extracted into a reusable `calculate_signal(data, config)`-style module; tested |
 | Formulaic alphas / yield-curve regime signals | `notebooks/signals/{formulaic_alphas_batch1,yield_curve_regime}.ipynb` | **REFACTOR** | Same shape of problem the COT notebook had — logic inline, no shared module, not yet extracted |
-| `reasearch/dim_redux.ipynb` | `reasearch/` | **DELETE or MERGE** | Misspelled directory, 239-byte stub, overlaps conceptually with `notebooks/signals/` |
-| `scripts/data/quant.db.wal` | tracked in git | **DELETE** | Stray DuckDB WAL file, shouldn't be version-controlled |
-| `node_modules/` | repo root | **DELETE** | Untracked but present on disk; contradicts commit `222401a "project is Python-only"` |
+| Experiment registry | `src/experiments/{config,registry,runner,report}.py`, `experiments/` table + dirs | **KEEP** | Hybrid DuckDB-metadata + filesystem-artifacts design; `EXP-0001` live and `complete`; tested |
+| Asset-universe abstraction | `src/experiments/universe.py` | **KEEP** | `AssetUniverse` ABC + `CommodityUniverse`/`EquityUniverse`; adding an asset class is one subclass, no changes elsewhere |
+| Inline portfolio rule | `src/experiments/portfolio.py` | **KEEP** | Deliberately narrow (`equal_weight_long_basket`) — not a general portfolio layer, see note above |
+| Experiment CLI scripts | `scripts/{new_experiment,run_experiment}.py` | **KEEP** | Thin wrappers, same convention as the `fetch_*.py` collector scripts |
 | Collector tests | `tests/collectors/` | **PARTIAL** | Covers `currency`/`macro`/`cot`; `commodity`/`equity`/`gsci` still have zero pytest coverage |
 | Raw/processed data split | — | **MISSING** | Plan's Section 5.1; everything goes straight into DuckDB |
 | Futures roll methodology | — | **MISSING** | Needed before any commodity curve work; no continuous-contract/roll logic exists for the 300xxx asset block |
-| Experiment registry | — | **MISSING** | Phase 3, not started |
 | Robustness engine (cost stress, param sweeps) | — | **MISSING** | Phase 4, not started |
-| Portfolio/risk layer | — | **MISSING** | Phase 7 — correctly deferred |
+| Portfolio/risk layer (general) | — | **MISSING** | Phase 7 — correctly deferred; see the narrow exception above |
 | Dashboard | — | **MISSING** | Phase 6 — correctly deferred |
 
 ---
@@ -128,16 +158,20 @@ don't exist — reasonable, since the experiment system they'd operate on doesn'
 ## 3. Known gaps / technical debt
 
 - `commodity`/`equity`/`gsci` collectors still have zero pytest coverage (only `currency`/`macro`/
-  `cot` were tested this round).
+  `cot` were tested).
 - Formulaic alphas and yield-curve regime signals are still inline-only in their notebooks — the
   COT extraction pattern (`src/signals/cot_commercial_positioning.py`) hasn't been applied to them
   yet.
-- No experiment registry — nothing is reproducible from an ID alone.
 - No cost-stress or parameter-sensitivity automation (Section 13 of the build plan).
-- Stray artifacts: tracked WAL file, untracked `node_modules/`, duplicate/misspelled `reasearch/`
-  directory — none of this was touched this round.
 - No raw/processed data separation or futures roll methodology — both prerequisites for any
   commodity curve work.
+- `scripts/update_commodities.py` is broken — calls `collector.fetch_single(stooq_ticker=...)` and
+  reads `entry["stooq"]`, neither of which exist on the current Yahoo-Finance-based
+  `CommodityCollector` (a leftover from a Stooq -> yfinance migration). `scripts/update_all.py`
+  skips commodities for now rather than fixing this.
+- `EquityUniverse` (`src/experiments/universe.py`) is built and tested but has no experiment
+  exercising it yet — there's no equities signal module. Low risk (it's a thin, concretely-scoped
+  query over data that already exists), but worth noting it's unvalidated by real use.
 - Collectors (`commodity`, `equity`, `gsci`, `currency`, `macro`, `cot`) import the global `db`
   singleton directly rather than accepting it as a constructor/method parameter, unlike
   `src/backtest/reference.py`'s `ReferenceData`, which takes an injectable `database=` arg. This
@@ -146,12 +180,13 @@ don't exist — reasonable, since the experiment system they'd operate on doesn'
 
 ## 4. Suggested next steps (unordered priority, smallest-step first)
 
-1. Clean up stray artifacts (untrack the WAL file, delete `node_modules/`, resolve `reasearch/`).
-2. Add `tests/collectors/` coverage for `commodity`/`equity`/`gsci` (same monkeypatch pattern as
+1. Add `tests/collectors/` coverage for `commodity`/`equity`/`gsci` (same monkeypatch pattern as
    `currency`/`macro`/`cot` — see `tests/collectors/test_cot.py` for the `_log_fetch` gotcha).
-3. Extract `formulaic_alphas_batch1.ipynb` and `yield_curve_regime.ipynb` into `src/signals/`
+2. Extract `formulaic_alphas_batch1.ipynb` and `yield_curve_regime.ipynb` into `src/signals/`
    modules, following the `cot_commercial_positioning.py` pattern.
-4. Stand up a minimal `experiments/` registry; promote COT positioning to `EXP-0001`.
+3. Build an equities signal module (following the `load_data()`/`calculate_signal(*data, config)`/
+   `SignalConfig` contract) to actually exercise `EquityUniverse` end to end as `EXP-0002`.
+4. Fix `scripts/update_commodities.py`'s stale Stooq-era calls.
 
 ---
 

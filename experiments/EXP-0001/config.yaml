@@ -1,0 +1,32 @@
+experiment_id: EXP-0001
+hypothesis: Extreme commercial (producer/merchant) net positioning in CFTC disaggregated
+  futures, expressed as a 52-week rolling percentile rank of net_long contracts, predicts
+  positive forward commodity returns over the following week (via weekly rebalance).
+  This is the headline variant the research notebook's OOS section centers on (raw_pctile_52w
+  >= 90), not a Sharpe-optimized choice -- see src/signals/cot_commercial_positioning.py's
+  own docstring caveat.
+data:
+  asset_class: commodity
+  resample: W-MON
+  start: null
+  end: null
+signal:
+  module: src.signals.cot_commercial_positioning
+  parameters: {}
+portfolio:
+  rule: equal_weight_long_threshold
+  date_column: week_date
+  asset_column: commodity
+  signal_column: raw_pctile_52w
+  threshold: 90.0
+  trend_filter: trend_none
+researcher: rhlbh
+created_at: '2026-10-04'
+backtest:
+  cost_bps: 1.0
+  lag: 1
+  periods_per_year: 52
+validation:
+  methodology: ''
+status: draft
+conclusion: null
