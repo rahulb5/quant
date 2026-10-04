@@ -55,8 +55,8 @@ class Factor:
 DEFAULT_FACTORS: list[Factor] = [
     Factor("equities", "price",  100001, "S&P 500 index"),
     Factor("dollar",   "macro",  "DTWEXBGS", "broad USD; +ve = USD up"),
-    Factor("gold",     "price",  400003, "S&P GSCI Gold ER"),
-    Factor("crude",    "price",  400001, "S&P GSCI Crude Oil ER"),
+    Factor("gold",     "price",  300009, "front-month gold future (GC1; descriptive, not roll-adjusted)"),
+    Factor("crude",    "price",  300001, "front-month crude future (CL1; descriptive, not roll-adjusted)"),
 ]
 
 

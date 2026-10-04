@@ -82,7 +82,7 @@ def mem_db() -> Database:
             [1, period, release, val],
         )
 
-    # gold (400003) and crude (400001) are intentionally NOT inserted.
+    # gold (300009) and crude (300001) are intentionally NOT inserted.
 
     yield database
     database.close()
