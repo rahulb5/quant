@@ -40,8 +40,10 @@ class PortfolioConfig:
     date_column: str
     asset_column: str
     signal_column: str
-    threshold: float
+    threshold: float = 0.0
     trend_filter: str = "trend_none"
+    n_deciles: int = 10
+    min_names: int = 50
 
 
 @dataclass

@@ -14,6 +14,7 @@ signal using date/ticker) plugs in without touching this function.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 
@@ -62,4 +63,63 @@ def equal_weight_long_basket(
 
     counts = wide.sum(axis=1)
     weights = wide.divide(counts, axis=0).fillna(0.0)
+    return weights.sort_index()
+
+
+def decile_long_short(
+    signal_df: pd.DataFrame,
+    date_column: str,
+    asset_column: str,
+    signal_column: str,
+    n_deciles: int = 10,
+    min_names: int = 50,
+) -> pd.DataFrame:
+    """Build a wide weight panel implementing a dollar-neutral decile long/short.
+
+    On each date, assets are ranked cross-sectionally by signal_df[signal_column]
+    (ties broken by order, via method='first' so decile boundaries stay
+    well-defined). The top decile is long, the bottom decile is short, each
+    side equal-weighted so gross long = 1.0 and gross short = 1.0. A date
+    with fewer than min_names valid (non-NaN) scores holds no position that
+    date (flat, all-zero row) rather than trading a thin cross-section.
+
+    Ported from the decile_weights() construction in
+    notebooks/signals/formulaic_alphas_batch1.ipynb — see that notebook for
+    the full screening process across alpha candidates.
+
+    Args:
+        signal_df: Long-format frame, one row per (date, asset).
+        date_column: Column holding the rebalance date.
+        asset_column: Column holding the asset key.
+        signal_column: Column ranked cross-sectionally each date.
+        n_deciles: Number of cross-sectional buckets.
+        min_names: Minimum valid scores required on a date to trade it.
+
+    Returns:
+        Wide pd.DataFrame: index=date_column values, columns=asset_column
+        values, values=weight (sums to 0.0, gross 2.0, or all-zero row if
+        below min_names).
+    """
+    wide = signal_df.pivot(index=date_column, columns=asset_column, values=signal_column)
+
+    valid_count = wide.notna().sum(axis=1)
+    ranks = wide.rank(axis=1, method="first")
+
+    decile = np.ceil(ranks.div(valid_count.replace(0, np.nan), axis=0) * n_deciles) - 1
+    decile = decile.clip(upper=n_deciles - 1)
+
+    top_mask = decile == (n_deciles - 1)
+    bottom_mask = decile == 0
+
+    insufficient = valid_count < min_names
+    top_mask = top_mask.where(~insufficient, False)
+    bottom_mask = bottom_mask.where(~insufficient, False)
+
+    top_n = top_mask.sum(axis=1)
+    bottom_n = bottom_mask.sum(axis=1)
+
+    weights = (
+        top_mask.astype(float).div(top_n.replace(0, np.nan), axis=0).fillna(0.0)
+        - bottom_mask.astype(float).div(bottom_n.replace(0, np.nan), axis=0).fillna(0.0)
+    )
     return weights.sort_index()

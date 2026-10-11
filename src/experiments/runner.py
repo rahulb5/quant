@@ -13,8 +13,11 @@ Signal module contract (the "standard interface" the build plan names):
 
 Asset-class contract: config.data.asset_class selects an AssetUniverse from
 UNIVERSE_REGISTRY (src/experiments/universe.py); its returns_panel() must
-share column labels with the weight panel equal_weight_long_basket()
-produces (both keyed by config.portfolio.asset_column's values).
+share column labels with the weight panel produced by whichever portfolio
+rule config.portfolio.rule selects from PORTFOLIO_REGISTRY (both keyed by
+config.portfolio.asset_column's values). Adding a new portfolio
+construction shape means writing one function in src/experiments/portfolio.py
+and registering it here — no other change needed.
 """
 
 from __future__ import annotations
@@ -32,11 +35,30 @@ import pandas as pd
 
 from src.backtest.backtest import BacktestReport, run_backtest
 from src.experiments.config import ExperimentConfig, load_config
-from src.experiments.portfolio import equal_weight_long_basket
+from src.experiments.portfolio import decile_long_short, equal_weight_long_basket
 from src.experiments.registry import update_experiment
 from src.experiments.report import render_research_note
 from src.experiments.universe import UNIVERSE_REGISTRY
 from src.shared.utils import logger
+
+PORTFOLIO_REGISTRY: dict[str, Any] = {
+    "equal_weight_long_threshold": lambda signal_df, cfg: equal_weight_long_basket(
+        signal_df,
+        date_column=cfg.date_column,
+        asset_column=cfg.asset_column,
+        signal_column=cfg.signal_column,
+        threshold=cfg.threshold,
+        trend_filter=cfg.trend_filter,
+    ),
+    "decile_long_short": lambda signal_df, cfg: decile_long_short(
+        signal_df,
+        date_column=cfg.date_column,
+        asset_column=cfg.asset_column,
+        signal_column=cfg.signal_column,
+        n_deciles=cfg.n_deciles,
+        min_names=cfg.min_names,
+    ),
+}
 
 
 @dataclass
@@ -75,14 +97,7 @@ def _build_signal(config: ExperimentConfig) -> pd.DataFrame:
 
 
 def _build_panels(config: ExperimentConfig, signal_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    weights = equal_weight_long_basket(
-        signal_df,
-        date_column=config.portfolio.date_column,
-        asset_column=config.portfolio.asset_column,
-        signal_column=config.portfolio.signal_column,
-        threshold=config.portfolio.threshold,
-        trend_filter=config.portfolio.trend_filter,
-    )
+    weights = PORTFOLIO_REGISTRY[config.portfolio.rule](signal_df, config.portfolio)
 
     universe_cls = UNIVERSE_REGISTRY[config.data.asset_class]
     universe = universe_cls()

@@ -42,9 +42,11 @@ if __name__ == "__main__":
     parser.add_argument("--date-column", required=True)
     parser.add_argument("--asset-column", required=True)
     parser.add_argument("--signal-column", required=True)
-    parser.add_argument("--threshold", type=float, required=True)
-    parser.add_argument("--trend-filter", default="trend_none")
     parser.add_argument("--portfolio-rule", default="equal_weight_long_threshold")
+    parser.add_argument("--threshold", type=float, default=0.0, help="equal_weight_long_threshold only")
+    parser.add_argument("--trend-filter", default="trend_none", help="equal_weight_long_threshold only")
+    parser.add_argument("--n-deciles", type=int, default=10, help="decile_long_short only")
+    parser.add_argument("--min-names", type=int, default=50, help="decile_long_short only")
     parser.add_argument("--cost-bps", type=float, default=1.0)
     parser.add_argument("--lag", type=int, default=1)
     parser.add_argument("--periods-per-year", type=int, default=252)
@@ -69,6 +71,8 @@ if __name__ == "__main__":
             signal_column=args.signal_column,
             threshold=args.threshold,
             trend_filter=args.trend_filter,
+            n_deciles=args.n_deciles,
+            min_names=args.min_names,
         ),
         backtest=BacktestConfig(
             cost_bps=args.cost_bps, lag=args.lag, periods_per_year=args.periods_per_year

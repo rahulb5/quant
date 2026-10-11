@@ -1,0 +1,36 @@
+experiment_id: EXP-0002
+hypothesis: Formulaic alpha_19 (Kakushadze & Tulchinsky, 2015) -- fading a stock's
+  7-day price move, scaled by its cross-sectional rank of 250-day momentum -- predicts
+  next-day cross-sectional relative returns on the current S&P 500 universe, traded
+  as a daily-rebalanced decile long/short dollar-neutral portfolio. This was the standout
+  of a 10-alpha screen in notebooks/signals/formulaic_alphas_batch1.ipynb (highest
+  Sharpe, lowest turnover of the batch) -- see src/signals/formulaic_alpha_19.py's
+  docstring for the survivorship-bias caveat (current constituents only, no point-in-time
+  index membership).
+data:
+  asset_class: equity
+  resample: null
+  start: null
+  end: null
+signal:
+  module: src.signals.formulaic_alpha_19
+  parameters: {}
+portfolio:
+  rule: decile_long_short
+  date_column: d
+  asset_column: ticker
+  signal_column: alpha_19
+  threshold: 0.0
+  trend_filter: trend_none
+  n_deciles: 10
+  min_names: 200
+researcher: rhlbh
+created_at: '2026-10-11'
+backtest:
+  cost_bps: 1.0
+  lag: 1
+  periods_per_year: 252
+validation:
+  methodology: ''
+status: draft
+conclusion: null

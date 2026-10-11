@@ -20,6 +20,25 @@ if TYPE_CHECKING:
 _TODO = "_TODO: researcher to fill in before marking this experiment complete._"
 
 
+def _portfolio_section(config: ExperimentConfig) -> str:
+    """Render the Portfolio Construction section, shaped per portfolio rule."""
+    p = config.portfolio
+    if p.rule == "decile_long_short":
+        return (
+            f"- Rule: {p.rule}\n"
+            f"- Signal column: `{p.signal_column}`\n"
+            f"- Deciles: {p.n_deciles} (long top, short bottom, dollar-neutral)\n"
+            f"- Minimum valid names/day: {p.min_names}\n"
+            f"- Transaction cost: {config.backtest.cost_bps} bps, lag {config.backtest.lag}"
+        )
+    return (
+        f"- Rule: {p.rule}\n"
+        f"- Signal column: `{p.signal_column}` (threshold {p.threshold})\n"
+        f"- Trend filter: `{p.trend_filter}`\n"
+        f"- Transaction cost: {config.backtest.cost_bps} bps, lag {config.backtest.lag}"
+    )
+
+
 def render_research_note(config: ExperimentConfig, report: "BacktestReport") -> str:
     """Render a Section-11-shaped research note for one experiment."""
     metrics = report.performance.metrics()
@@ -52,10 +71,7 @@ def render_research_note(config: ExperimentConfig, report: "BacktestReport") -> 
 
 ## Portfolio Construction
 
-- Rule: {config.portfolio.rule}
-- Signal column: `{config.portfolio.signal_column}` (threshold {config.portfolio.threshold})
-- Trend filter: `{config.portfolio.trend_filter}`
-- Transaction cost: {config.backtest.cost_bps} bps, lag {config.backtest.lag}
+{_portfolio_section(config)}
 
 ## Results
 
