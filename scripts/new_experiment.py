@@ -10,7 +10,9 @@ Usage:
     python scripts/new_experiment.py \\
         --hypothesis "Extreme commercial positioning predicts forward returns" \\
         --signal-module src.signals.cot_commercial_positioning \\
-        --asset-class commodity --resample W-MON \\
+        --asset-class commodity --market commodities \\
+        --universe cot_11_futures --signal-family positioning \\
+        --frequency weekly --direction long_only --resample W-MON \\
         --date-column week_date --asset-column commodity \\
         --signal-column raw_pctile_52w --threshold 90 \\
         --periods-per-year 52 --researcher rhlbh
@@ -24,6 +26,11 @@ from pathlib import Path
 from src.db.client import db
 from src.experiments.config import (
     BacktestConfig,
+    ClassificationConfig,
+    DIRECTIONS,
+    FREQUENCIES,
+    MARKETS,
+    SIGNAL_FAMILIES,
     DataConfig,
     ExperimentConfig,
     PortfolioConfig,
@@ -38,6 +45,11 @@ if __name__ == "__main__":
     parser.add_argument("--hypothesis", required=True)
     parser.add_argument("--signal-module", required=True)
     parser.add_argument("--asset-class", required=True)
+    parser.add_argument("--market", required=True, choices=MARKETS)
+    parser.add_argument("--universe", required=True, help="snake_case, e.g. sp500_current")
+    parser.add_argument("--signal-family", required=True, choices=SIGNAL_FAMILIES)
+    parser.add_argument("--frequency", required=True, choices=FREQUENCIES)
+    parser.add_argument("--direction", required=True, choices=DIRECTIONS)
     parser.add_argument("--resample", default=None)
     parser.add_argument("--date-column", required=True)
     parser.add_argument("--asset-column", required=True)
@@ -86,6 +98,13 @@ if __name__ == "__main__":
             n_trials=args.n_trials,
         ),
         status="draft",
+        classification=ClassificationConfig(
+            asset_class=args.market,
+            universe=args.universe,
+            signal_family=args.signal_family,
+            frequency=args.frequency,
+            direction=args.direction,
+        ),
     )
 
     experiment_dir = Path("experiments") / experiment_id
@@ -102,6 +121,11 @@ if __name__ == "__main__":
         asset_class=args.asset_class,
         config_path=str(config_path),
         status="draft",
+        market=args.market,
+        universe=args.universe,
+        signal_family=args.signal_family,
+        frequency=args.frequency,
+        direction=args.direction,
     ))
 
     db.close()

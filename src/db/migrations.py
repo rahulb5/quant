@@ -213,4 +213,15 @@ MIGRATIONS: list[Migration] = [
         ALTER TABLE experiments ADD COLUMN deflated_sharpe DOUBLE;
         """,
     ),
+    Migration(
+        version=10,
+        description="Add classification columns to experiments",
+        sql="""
+        ALTER TABLE experiments ADD COLUMN universe TEXT;
+        ALTER TABLE experiments ADD COLUMN signal_family TEXT;
+        ALTER TABLE experiments ADD COLUMN frequency TEXT;
+        ALTER TABLE experiments ADD COLUMN direction TEXT;
+        ALTER TABLE experiments ADD COLUMN market TEXT;
+        """,
+    ),
 ]

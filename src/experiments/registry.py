@@ -29,6 +29,11 @@ _UPDATABLE_FIELDS = {
     "sharpe_2x_cost",
     "sharpe_ci_low",
     "deflated_sharpe",
+    "market",
+    "universe",
+    "signal_family",
+    "frequency",
+    "direction",
 }
 
 
@@ -47,6 +52,11 @@ class ExperimentRecord:
     max_drawdown: float | None = None
     ann_turnover: float | None = None
     conclusion: str | None = None
+    market: str | None = None
+    universe: str | None = None
+    signal_family: str | None = None
+    frequency: str | None = None
+    direction: str | None = None
 
 
 def next_experiment_id() -> str:
@@ -62,14 +72,17 @@ def insert_experiment(record: ExperimentRecord) -> int:
         """
         INSERT INTO experiments
           (id, hypothesis, researcher, created_at, signal_name, asset_class,
-           config_path, status, sharpe, cagr, max_drawdown, ann_turnover, conclusion)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           config_path, status, sharpe, cagr, max_drawdown, ann_turnover, conclusion,
+           market, universe, signal_family, frequency, direction)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             record.id, record.hypothesis, record.researcher, record.created_at,
             record.signal_name, record.asset_class, record.config_path,
             record.status, record.sharpe, record.cagr, record.max_drawdown,
             record.ann_turnover, record.conclusion,
+            record.market, record.universe, record.signal_family,
+            record.frequency, record.direction,
         ],
     )
 
@@ -79,7 +92,7 @@ def update_experiment(experiment_id: str, **fields: Any) -> int:
 
     Accepts any of: status, sharpe, cagr, max_drawdown, ann_turnover,
     conclusion, robustness_verdict, sharpe_2x_cost, sharpe_ci_low,
-    deflated_sharpe. Always bumps updated_at. Returns rows changed.
+    deflated_sharpe, market, universe, signal_family, frequency, direction. Always bumps updated_at. Returns rows changed.
 
     Raises:
         ValueError: If an unknown field is passed.

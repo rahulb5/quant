@@ -20,6 +20,36 @@ from typing import Any
 import yaml
 
 
+MARKETS = ("commodities", "equities", "fx", "rates", "macro", "multi")
+SIGNAL_FAMILIES = ("carry", "momentum", "reversal", "value", "positioning", "macro", "regime")
+FREQUENCIES = ("daily", "weekly", "monthly")
+DIRECTIONS = ("long_only", "long_short", "market_neutral")
+
+
+@dataclass
+class ClassificationConfig:
+    """Human-facing experiment label; separate from the technical data.asset_class key."""
+
+    asset_class: str
+    universe: str
+    signal_family: str
+    frequency: str
+    direction: str
+
+    def __post_init__(self) -> None:
+        for name, allowed in (
+            ("asset_class", MARKETS),
+            ("signal_family", SIGNAL_FAMILIES),
+            ("frequency", FREQUENCIES),
+            ("direction", DIRECTIONS),
+        ):
+            if getattr(self, name) not in allowed:
+                raise ValueError(
+                    f"classification.{name}={getattr(self, name)!r} is invalid; "
+                    f"allowed: {', '.join(allowed)}"
+                )
+
+
 @dataclass
 class DataConfig:
     asset_class: str
@@ -110,6 +140,7 @@ class ExperimentConfig:
     conclusion: str | None = None
     git_sha: str | None = None
     data_as_of: str | None = None
+    classification: ClassificationConfig | None = None
 
 
 def load_config(path: str) -> ExperimentConfig:
@@ -132,6 +163,9 @@ def load_config(path: str) -> ExperimentConfig:
         conclusion=raw.get("conclusion"),
         git_sha=raw.get("git_sha"),
         data_as_of=raw.get("data_as_of"),
+        classification=(
+            ClassificationConfig(**raw["classification"]) if raw.get("classification") else None
+        ),
     )
 
 

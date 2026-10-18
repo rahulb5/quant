@@ -82,3 +82,9 @@ status: complete
 conclusion: null
 git_sha: null
 data_as_of: null
+classification:
+  asset_class: equities
+  universe: sp500_current
+  signal_family: reversal
+  frequency: daily
+  direction: long_short

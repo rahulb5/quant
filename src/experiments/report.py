@@ -21,6 +21,20 @@ if TYPE_CHECKING:
 _TODO = "_TODO: researcher to fill in before marking this experiment complete._"
 
 
+def _classification_lines(config: ExperimentConfig) -> str:
+    """Data-section bullets for the classification block; empty when absent."""
+    c = config.classification
+    if c is None:
+        return ""
+    return (
+        f"- Market: {c.asset_class}\n"
+        f"- Universe: {c.universe}\n"
+        f"- Signal family: {c.signal_family}\n"
+        f"- Frequency: {c.frequency}\n"
+        f"- Direction: {c.direction}\n"
+    )
+
+
 def _portfolio_section(config: ExperimentConfig) -> str:
     """Render the Portfolio Construction section, shaped per portfolio rule."""
     p = config.portfolio
@@ -96,7 +110,7 @@ def render_research_note(
 ## Data
 
 - Asset class: {config.data.asset_class}
-- Resample: {config.data.resample or "native frequency"}
+{_classification_lines(config)}- Resample: {config.data.resample or "native frequency"}
 - Date range used: {metrics.get("start")} to {metrics.get("end")}
 
 ## Methodology

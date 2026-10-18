@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from src.experiments.config import (
     BacktestConfig,
+    ClassificationConfig,
     DataConfig,
     ExperimentConfig,
     PortfolioConfig,
@@ -97,3 +100,33 @@ portfolio: {rule: r, date_column: d, asset_column: a, signal_column: s}
     assert loaded.validation.n_trials == 1
     assert loaded.robustness.cost_kill_multiplier == 1.5
     assert loaded.robustness.param_grid == {}
+
+
+def _classification(**overrides) -> ClassificationConfig:
+    fields = dict(
+        asset_class="commodities", universe="cot_11_futures", signal_family="positioning",
+        frequency="weekly", direction="long_only",
+    )
+    return ClassificationConfig(**{**fields, **overrides})
+
+
+def test_round_trip_with_classification(tmp_path):
+    config = _sample_config()
+    config.classification = _classification()
+    path = tmp_path / "config.yaml"
+    save_config(config, str(path))
+
+    assert load_config(str(path)) == config
+
+
+def test_round_trip_without_classification(tmp_path):
+    path = tmp_path / "config.yaml"
+    save_config(_sample_config(), str(path))
+
+    assert load_config(str(path)).classification is None
+
+
+@pytest.mark.parametrize("field", ["asset_class", "signal_family", "frequency", "direction"])
+def test_invalid_classification_value_raises(field):
+    with pytest.raises(ValueError, match=f"classification.{field}.*allowed"):
+        _classification(**{field: "bogus"})

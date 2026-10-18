@@ -81,3 +81,9 @@ status: complete
 conclusion: null
 git_sha: null
 data_as_of: null
+classification:
+  asset_class: commodities
+  universe: cot_11_futures
+  signal_family: positioning
+  frequency: weekly
+  direction: long_only

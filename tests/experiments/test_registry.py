@@ -97,3 +97,21 @@ def test_list_experiments_filters_by_status(mem_db):
 
     all_rows = list_experiments()
     assert len(all_rows) == 2
+
+
+def test_classification_columns_insert_and_update(mem_db):
+    record = _record()
+    record.market = "commodities"
+    record.universe = "cot_11_futures"
+    insert_experiment(record)
+
+    row = get_experiment("EXP-0001")
+    assert row["market"] == "commodities"
+    assert row["universe"] == "cot_11_futures"
+    assert row["direction"] is None
+
+    update_experiment("EXP-0001", signal_family="positioning", frequency="weekly", direction="long_only")
+    row = get_experiment("EXP-0001")
+    assert (row["signal_family"], row["frequency"], row["direction"]) == (
+        "positioning", "weekly", "long_only",
+    )
