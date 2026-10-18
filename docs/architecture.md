@@ -1,7 +1,7 @@
 # Architecture
 
-**Last audited:** 2026-10-11 (after extracting alpha_19 into `src/signals/`, adding the
-`decile_long_short` portfolio rule, and running EXP-0002)
+**Last audited:** 2026-10-18 (after adding the robustness engine, the holdout mechanism, and
+config/registry status sync with git SHA + data as-of stamping)
 **Audited by:** Claude Code (`/update-architecture` skill maintains this file — see bottom section)
 
 This document is the Phase 1 deliverable from `quant_research_os_build_plan.md`: an inventory and
@@ -65,6 +65,9 @@ This is the most mature part of the system — `src/backtest/`:
   Newey-West-corrected factor regression, rolling correlation
 - `backtest.py` — `run_backtest(weights, asset_returns, cost_bps, lag, name, ...)` →
   `BacktestReport`, a one-call wrapper over the above
+- `stats.py` — significance helpers for robustness testing: `block_bootstrap_sharpe_ci()`,
+  `deflated_sharpe_ratio()` (Bailey & Lopez de Prado), `sharpe_excluding_top()`,
+  `sharpe_excluding_tails()`, `sharpe_excluding_best_year()`, `gaussian_top_trim_shift()`
 
 `run_backtest()` itself still takes **weights directly** — the signal → weight translation now
 exists, but one level up, in `src/experiments/` (below), not inside `src/backtest/`.
@@ -78,7 +81,12 @@ metadata, plus a filesystem `experiments/EXP-000N/` directory per experiment hol
 `scripts/run_experiment.py` (-> `src/experiments/runner.run_experiment()`) executes it end to end:
 config -> signal module -> weights/returns panels -> `run_backtest()` -> every artifact above,
 updating the registry row to `complete` (with headline metrics) or `failed` (with the error) on
-exit. Two experiments are live and `complete`:
+exit. The runner also writes `status`/`conclusion` back into `config.yaml` so it cannot drift from
+the registry, and stamps `git_sha` (HEAD at run time, which does not capture uncommitted changes)
+and `data_as_of` (last date in the returns panel actually used). Re-fetching into DuckDB still
+changes inputs silently — there is no raw snapshot — so `data_as_of` records but does not freeze
+the data. If `validation.holdout_start` is set, the runner drops every date on/after it before
+backtesting. Two experiments are live and `complete`:
 - **EXP-0001** (COT commercial positioning) — the first to close the full
   hypothesis -> experiment -> backtest -> report loop.
 - **EXP-0002** (formulaic alpha_19) — the first to exercise `EquityUniverse` and the
@@ -102,10 +110,30 @@ COT-specific:
 A signal module plugs into this by exposing `load_data()`, `calculate_signal(*data, config)`, and
 a `SignalConfig` class — both `cot_commercial_positioning.py` and `formulaic_alpha_19.py` do this.
 
+### How is robustness tested?
+`src/experiments/robustness.py` (`scripts/run_robustness.py <config.yaml> [--unlock-holdout]`) is
+the standard "try to kill it" suite, run per experiment rather than inside `run_experiment()`. It
+loads signal data once, then sweeps cheap variants (`apply_costs()` on cached weights/returns)
+for seven checks, each `PASS`/`FLAG`/`KILL`/`SKIPPED`: `cost_stress` (multipliers + breakeven bps),
+`lag_sensitivity`, `outliers` (symmetric best/worst trim — one-sided trimming is biased, see the
+module), `subperiods` (halves, decades, yearly, crisis windows), `parameters` (grid over dotted
+config paths such as `portfolio.threshold` or `signal.parameters.trend_window`, re-computing the
+signal per setting), `statistical` (block-bootstrap Sharpe CI + deflated Sharpe using
+`validation.n_trials`), and `holdout`. Thresholds live in `config.robustness`
+(`RobustnessConfig`) so a verdict is traceable to its rules. Overall result is `KILLED` or
+`NEEDS_REVIEW`; the suite never emits "approved". The holdout is scored only with
+`--unlock-holdout`, once, and frozen in `holdout.json`. Outputs: `robustness.json`,
+`charts/robustness_*.png`, the research note's Robustness section, and four registry columns
+(migration v9: `robustness_verdict`, `sharpe_2x_cost`, `sharpe_ci_low`, `deflated_sharpe`).
+Both live experiments have been run through it (both `NEEDS_REVIEW`; neither has a holdout, since
+they predate the mechanism). `scripts/new_experiment.py` defaults `holdout_start` to one year
+before the scaffold date and takes `--n-trials`.
+
 ### Where are results stored?
 Both places now, depending on what's being asked: structured/queryable headline metrics live in
-the `experiments` DuckDB table; the full diagnostic suite (yearly/regime/correlation/beta/factor
-regression), the return series, and charts live under `experiments/EXP-000N/`. Pre-registry
+the `experiments` DuckDB table (including the robustness summary columns); the full diagnostic
+suite (yearly/regime/correlation/beta/factor regression), `robustness.json`, `holdout.json` (once
+unlocked), the return series, and charts live under `experiments/EXP-000N/`. Pre-registry
 research (formulaic alphas, yield-curve regime) is still notebook-only, as described above.
 
 ### How is portfolio construction separated from signal research?
@@ -129,6 +157,11 @@ narrow, intentional exception: a single inline rule needed to turn a signal into
   the `tests/` tree, not part of the suite.
 - `tests/signals/` — covers `src/signals/cot_commercial_positioning.py` (pure-pandas transforms,
   plus `load_data()` against an in-memory DB).
+- `tests/backtest/test_stats.py` — the significance helpers, including a simulation check of the
+  Gaussian trim shift.
+- `tests/experiments/test_robustness.py` — per-check verdict logic on synthetic series, dotted-path
+  overrides, and an integration run (artifacts, registry row, note-section replacement, holdout
+  stays locked until unlocked then frozen). 409 tests total.
 - `tests/experiments/` — covers `universe` (asset-id resolution, returns-panel pivoting, and a
   direct check that `resample='W-MON'` reproduces `weekly_prices_with_trend()`'s own dates),
   `portfolio`, `registry` (CRUD against an in-memory DB), `config` (yaml round-trip), and one
@@ -161,10 +194,11 @@ don't exist — reasonable, since the experiment system they'd operate on doesn'
 | Asset-universe abstraction | `src/experiments/universe.py` | **KEEP** | `AssetUniverse` ABC + `CommodityUniverse`/`EquityUniverse`; both now exercised by a real experiment |
 | Portfolio rules | `src/experiments/portfolio.py` | **KEEP** | `equal_weight_long_basket()` + `decile_long_short()`, dispatched via `runner.py`'s `PORTFOLIO_REGISTRY`; still deliberately narrow, not a general portfolio layer |
 | Experiment CLI scripts | `scripts/{new_experiment,run_experiment}.py` | **KEEP** | Thin wrappers, same convention as the `fetch_*.py` collector scripts |
+| Significance helpers | `src/backtest/stats.py` | **KEEP** | Bootstrap CI, deflated Sharpe, trimmed Sharpes; tested |
+| Robustness engine | `src/experiments/robustness.py`, `scripts/run_robustness.py` | **KEEP** | Seven checks, config-driven thresholds, holdout lock; run on EXP-0001/0002. Missing: equity style factors, walk-forward, regime-conditioned verdicts |
 | Collector tests | `tests/collectors/` | **PARTIAL** | Covers `currency`/`macro`/`cot`; `commodity`/`equity`/`gsci` still have zero pytest coverage |
 | Raw/processed data split | — | **MISSING** | Plan's Section 5.1; everything goes straight into DuckDB |
 | Futures roll methodology | — | **MISSING** | Needed before any commodity curve work; no continuous-contract/roll logic exists for the 300xxx asset block |
-| Robustness engine (cost stress, param sweeps) | — | **MISSING** | Phase 4, not started |
 | Portfolio/risk layer (general) | — | **MISSING** | Phase 7 — correctly deferred; see the narrow exception above |
 | Dashboard | — | **MISSING** | Phase 6 — correctly deferred |
 
@@ -176,8 +210,13 @@ don't exist — reasonable, since the experiment system they'd operate on doesn'
   `cot` were tested).
 - Yield-curve regime signal is still inline-only — unlike the other two signals, its research
   hasn't settled on a final variant/weighting, so there's nothing concrete to extract yet.
-- No cost-stress or parameter-sensitivity automation (Section 13 of the build plan) — this is the
-  next planned piece of work (robustness engine, Phase 4).
+- Neither live experiment has a held-out period (they predate `holdout_start`); the plan is to treat
+  data arriving after the freeze date as their out-of-sample test. `git_sha`/`data_as_of` are `null`
+  on both for the same reason — their original inputs can't be reconstructed.
+- Robustness gaps: no equity style factors (momentum/value/size) in the factor regression, no
+  walk-forward validation, and `git_sha` records HEAD, so uncommitted code isn't captured.
+- Cost realism: both experiments assume 1 bp one-way. EXP-0002's breakeven is only ~7 bps, so its
+  cost assumption is the load-bearing one.
 - No raw/processed data separation or futures roll methodology — both prerequisites for any
   commodity curve work.
 - `scripts/update_commodities.py` is broken — calls `collector.fetch_single(stooq_ticker=...)` and
@@ -194,9 +233,9 @@ don't exist — reasonable, since the experiment system they'd operate on doesn'
 
 1. Add `tests/collectors/` coverage for `commodity`/`equity`/`gsci` (same monkeypatch pattern as
    `currency`/`macro`/`cot` — see `tests/collectors/test_cot.py` for the `_log_fetch` gotcha).
-2. Build the robustness engine (Phase 4): cost stress, parameter sensitivity, timing/lag
-   sensitivity, sample-stability slices, reusing `runner._build_signal()`/`_build_panels()` and
-   `run_backtest()` rather than a new framework.
+2. Streamlit dashboard (Phase 6) over `experiments` + `experiments/EXP-000N/` artifacts — the
+   approval screen for signals — then an approval state and signal-agnostic paper-trading engine
+   (Phase 8) once something survives the gate.
 3. Close the open research questions in `yield_curve_regime.ipynb` (pick a signal variant via its
    existing IC analysis) before extracting it into `src/signals/`.
 4. Fix `scripts/update_commodities.py`'s stale Stooq-era calls.

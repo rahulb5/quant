@@ -56,6 +56,42 @@ class BacktestConfig:
 @dataclass
 class ValidationConfig:
     methodology: str = ""
+    holdout_start: str | None = None
+    n_trials: int = 1
+
+
+@dataclass
+class RobustnessConfig:
+    """Sweep settings and verdict thresholds for src/experiments/robustness.py.
+
+    Thresholds are stored with the experiment so a verdict can be traced back
+    to the rules that produced it. cost_multipliers scale backtest.cost_bps;
+    lag_offsets are added to backtest.lag; param_grid maps dotted config paths
+    (e.g. "portfolio.threshold", "signal.parameters.trend_window") to the
+    values to try, and should contain modest perturbations of the base setting.
+    """
+
+    cost_multipliers: list[float] = field(default_factory=lambda: [0.5, 1.0, 1.5, 2.0, 3.0, 5.0])
+    lag_offsets: list[int] = field(default_factory=lambda: [0, 1, 2])
+    param_grid: dict[str, list[Any]] = field(default_factory=dict)
+    crisis_windows: dict[str, list[str]] = field(default_factory=lambda: {
+        "gfc_2008": ["2008-01-01", "2009-06-30"],
+        "covid_2020": ["2020-02-01", "2020-06-30"],
+        "inflation_2022": ["2022-01-01", "2022-12-31"],
+    })
+    n_boot: int = 2000
+    seed: int = 0
+    cost_kill_multiplier: float = 1.5
+    cost_flag_multiplier: float = 2.0
+    breakeven_flag_bps: float = 5.0
+    lag_kill_retention: float = 0.35
+    lag_flag_retention: float = 0.5
+    outlier_trim_frac: float = 0.01
+    positive_year_flag_frac: float = 0.55
+    half_sharpe_flag: float = -0.2
+    param_kill_frac: float = 0.6
+    deflated_sharpe_flag: float = 0.90
+    holdout_kill_sharpe: float = -0.25
 
 
 @dataclass
@@ -69,8 +105,11 @@ class ExperimentConfig:
     created_at: str | None = None
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     validation: ValidationConfig = field(default_factory=ValidationConfig)
+    robustness: RobustnessConfig = field(default_factory=RobustnessConfig)
     status: str = "draft"
     conclusion: str | None = None
+    git_sha: str | None = None
+    data_as_of: str | None = None
 
 
 def load_config(path: str) -> ExperimentConfig:
@@ -88,8 +127,11 @@ def load_config(path: str) -> ExperimentConfig:
         portfolio=PortfolioConfig(**raw["portfolio"]),
         backtest=BacktestConfig(**raw.get("backtest", {})),
         validation=ValidationConfig(**raw.get("validation", {})),
+        robustness=RobustnessConfig(**raw.get("robustness", {})),
         status=raw.get("status", "draft"),
         conclusion=raw.get("conclusion"),
+        git_sha=raw.get("git_sha"),
+        data_as_of=raw.get("data_as_of"),
     )
 
 

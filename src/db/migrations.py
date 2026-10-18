@@ -203,4 +203,14 @@ MIGRATIONS: list[Migration] = [
         );
         """,
     ),
+    Migration(
+        version=9,
+        description="Add robustness summary columns to experiments",
+        sql="""
+        ALTER TABLE experiments ADD COLUMN robustness_verdict TEXT;
+        ALTER TABLE experiments ADD COLUMN sharpe_2x_cost DOUBLE;
+        ALTER TABLE experiments ADD COLUMN sharpe_ci_low DOUBLE;
+        ALTER TABLE experiments ADD COLUMN deflated_sharpe DOUBLE;
+        """,
+    ),
 ]

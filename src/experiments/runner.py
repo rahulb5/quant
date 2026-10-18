@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from src.backtest.backtest import BacktestReport, run_backtest
-from src.experiments.config import ExperimentConfig, load_config
+from src.experiments.config import ExperimentConfig, load_config, save_config
 from src.experiments.portfolio import decile_long_short, equal_weight_long_basket
 from src.experiments.registry import update_experiment
 from src.experiments.report import render_research_note
@@ -68,6 +69,21 @@ class ExperimentResult:
     experiment_dir: Path
 
 
+def _git_sha() -> str | None:
+    """Current repo HEAD commit, or None if git isn't available (e.g. no .git)."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parents[2],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
 def _to_jsonable(obj: Any) -> Any:
     """Recursively convert pandas/numpy objects into plain JSON-safe types."""
     if isinstance(obj, pd.DataFrame):
@@ -87,25 +103,45 @@ def _to_jsonable(obj: Any) -> Any:
     return obj
 
 
-def _build_signal(config: ExperimentConfig) -> pd.DataFrame:
+def _load_signal_data(config: ExperimentConfig) -> tuple:
     signal_module = importlib.import_module(config.signal.module)
     data = signal_module.load_data()
-    if not isinstance(data, tuple):
-        data = (data,)
+    return data if isinstance(data, tuple) else (data,)
+
+
+def _compute_signal(config: ExperimentConfig, data: tuple) -> pd.DataFrame:
+    signal_module = importlib.import_module(config.signal.module)
     signal_config = signal_module.SignalConfig(**config.signal.parameters)
     return signal_module.calculate_signal(*data, config=signal_config)
 
 
-def _build_panels(config: ExperimentConfig, signal_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    weights = PORTFOLIO_REGISTRY[config.portfolio.rule](signal_df, config.portfolio)
+def _build_signal(config: ExperimentConfig) -> pd.DataFrame:
+    return _compute_signal(config, _load_signal_data(config))
 
-    universe_cls = UNIVERSE_REGISTRY[config.data.asset_class]
-    universe = universe_cls()
-    asset_returns = universe.returns_panel(
+
+def _build_weights(config: ExperimentConfig, signal_df: pd.DataFrame) -> pd.DataFrame:
+    return PORTFOLIO_REGISTRY[config.portfolio.rule](signal_df, config.portfolio)
+
+
+def _build_returns(config: ExperimentConfig) -> pd.DataFrame:
+    universe = UNIVERSE_REGISTRY[config.data.asset_class]()
+    return universe.returns_panel(
         resample=config.data.resample, start=config.data.start, end=config.data.end
     )
 
-    return weights, asset_returns
+
+def _build_panels(config: ExperimentConfig, signal_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    return _build_weights(config, signal_df), _build_returns(config)
+
+
+def _apply_holdout(
+    weights: pd.DataFrame, asset_returns: pd.DataFrame, holdout_start: str | None
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Drop every date on or after holdout_start so no analysis touches the held-out window."""
+    if holdout_start is None:
+        return weights, asset_returns
+    cutoff = pd.Timestamp(holdout_start)
+    return weights[weights.index < cutoff], asset_returns[asset_returns.index < cutoff]
 
 
 def _write_artifacts(config: ExperimentConfig, report: BacktestReport, experiment_dir: Path) -> None:
@@ -147,7 +183,9 @@ def _write_artifacts(config: ExperimentConfig, report: BacktestReport, experimen
     fig.savefig(charts_dir / "drawdown.png")
     plt.close(fig)
 
-    note = render_research_note(config, report)
+    robustness_path = experiment_dir / "robustness.json"
+    robustness = json.loads(robustness_path.read_text()) if robustness_path.exists() else None
+    note = render_research_note(config, report, robustness=robustness)
     (experiment_dir / "research_note.md").write_text(note)
 
 
@@ -169,6 +207,7 @@ def run_experiment(config_path: str) -> ExperimentResult:
     try:
         signal_df = _build_signal(config)
         weights, asset_returns = _build_panels(config, signal_df)
+        weights, asset_returns = _apply_holdout(weights, asset_returns, config.validation.holdout_start)
 
         report = run_backtest(
             weights,
@@ -193,8 +232,16 @@ def run_experiment(config_path: str) -> ExperimentResult:
             ann_turnover=float(exec_summary["ann_turnover"]),
         )
 
+        config.status = "complete"
+        config.git_sha = _git_sha()
+        config.data_as_of = str(asset_returns.index.max())
+        save_config(config, config_path)
+
         return ExperimentResult(config=config, report=report, experiment_dir=experiment_dir)
     except Exception as exc:
         logger.error(f"[run_experiment] {config.experiment_id} failed: {exc}")
         update_experiment(config.experiment_id, status="failed", conclusion=f"FAILED: {exc}")
+        config.status = "failed"
+        config.conclusion = f"FAILED: {exc}"
+        save_config(config, config_path)
         raise

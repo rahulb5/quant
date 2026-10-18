@@ -25,6 +25,10 @@ _UPDATABLE_FIELDS = {
     "max_drawdown",
     "ann_turnover",
     "conclusion",
+    "robustness_verdict",
+    "sharpe_2x_cost",
+    "sharpe_ci_low",
+    "deflated_sharpe",
 }
 
 
@@ -74,7 +78,8 @@ def update_experiment(experiment_id: str, **fields: Any) -> int:
     """Update one or more fields on an existing experiment row.
 
     Accepts any of: status, sharpe, cagr, max_drawdown, ann_turnover,
-    conclusion. Always bumps updated_at. Returns rows changed.
+    conclusion, robustness_verdict, sharpe_2x_cost, sharpe_ci_low,
+    deflated_sharpe. Always bumps updated_at. Returns rows changed.
 
     Raises:
         ValueError: If an unknown field is passed.

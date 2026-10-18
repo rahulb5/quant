@@ -67,3 +67,33 @@ portfolio: {rule: r, date_column: d, asset_column: a, signal_column: s, threshol
     assert loaded.status == "draft"
     assert loaded.signal.parameters == {}
     assert loaded.portfolio.trend_filter == "trend_none"
+
+
+def test_round_trip_preserves_robustness_and_validation_fields(tmp_path):
+    config = _sample_config()
+    config.validation = ValidationConfig(holdout_start="2025-10-01", n_trials=96)
+    config.robustness.param_grid = {"portfolio.threshold": [85, 90, 95]}
+    config.robustness.cost_multipliers = [1.0, 2.0]
+    path = tmp_path / "config.yaml"
+    save_config(config, str(path))
+
+    assert load_config(str(path)) == config
+
+
+def test_old_config_without_robustness_block_gets_defaults(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        """
+experiment_id: EXP-0003
+hypothesis: "test"
+data: {asset_class: commodity}
+signal: {module: some.module}
+portfolio: {rule: r, date_column: d, asset_column: a, signal_column: s}
+"""
+    )
+    loaded = load_config(str(path))
+
+    assert loaded.validation.holdout_start is None
+    assert loaded.validation.n_trials == 1
+    assert loaded.robustness.cost_kill_multiplier == 1.5
+    assert loaded.robustness.param_grid == {}

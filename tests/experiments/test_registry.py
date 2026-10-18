@@ -68,6 +68,20 @@ def test_update_experiment_sets_fields(mem_db):
     assert row["max_drawdown"] == -0.1
 
 
+def test_update_experiment_sets_robustness_columns(mem_db):
+    insert_experiment(_record())
+    update_experiment(
+        "EXP-0001", robustness_verdict="NEEDS_REVIEW",
+        sharpe_2x_cost=0.4, sharpe_ci_low=-0.1, deflated_sharpe=0.93,
+    )
+
+    row = get_experiment("EXP-0001")
+    assert row["robustness_verdict"] == "NEEDS_REVIEW"
+    assert row["sharpe_2x_cost"] == 0.4
+    assert row["sharpe_ci_low"] == -0.1
+    assert row["deflated_sharpe"] == 0.93
+
+
 def test_update_experiment_rejects_unknown_field(mem_db):
     insert_experiment(_record())
     with pytest.raises(ValueError):

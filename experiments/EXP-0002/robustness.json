@@ -1,0 +1,266 @@
+{
+  "experiment_id": "EXP-0002",
+  "generated_at": "2026-10-18T22:04:12+00:00",
+  "git_sha": "b43e16db70f1126fd18655e9fe439ecb9d61b5c3",
+  "n_trials": 10,
+  "holdout_start": null,
+  "in_sample_end": "2026-10-02 00:00:00",
+  "n_obs": 6726,
+  "base": {
+    "sharpe": 0.6595652967351547,
+    "cost_bps": 1.0,
+    "lag": 1
+  },
+  "thresholds": {
+    "cost_multipliers": [
+      0.5,
+      1.0,
+      1.5,
+      2.0,
+      3.0,
+      5.0
+    ],
+    "lag_offsets": [
+      0,
+      1,
+      2
+    ],
+    "param_grid": {
+      "signal.parameters.trend_window": [
+        5,
+        7,
+        10
+      ],
+      "signal.parameters.momentum_window": [
+        200,
+        250,
+        300
+      ]
+    },
+    "crisis_windows": {
+      "gfc_2008": [
+        "2008-01-01",
+        "2009-06-30"
+      ],
+      "covid_2020": [
+        "2020-02-01",
+        "2020-06-30"
+      ],
+      "inflation_2022": [
+        "2022-01-01",
+        "2022-12-31"
+      ]
+    },
+    "n_boot": 2000,
+    "seed": 0,
+    "cost_kill_multiplier": 1.5,
+    "cost_flag_multiplier": 2.0,
+    "breakeven_flag_bps": 5.0,
+    "lag_kill_retention": 0.35,
+    "lag_flag_retention": 0.5,
+    "outlier_trim_frac": 0.01,
+    "positive_year_flag_frac": 0.55,
+    "half_sharpe_flag": -0.2,
+    "param_kill_frac": 0.6,
+    "deflated_sharpe_flag": 0.9,
+    "holdout_kill_sharpe": -0.25
+  },
+  "checks": {
+    "cost_stress": {
+      "verdict": "PASS",
+      "reason": "breakeven cost 7.2 bps; survives 2.0x costs",
+      "detail": {
+        "base_cost_bps": 1.0,
+        "breakeven_bps": 7.23048829974843,
+        "sharpe_by_multiplier": {
+          "0.5": 0.7124876195351628,
+          "1.0": 0.6595652967351547,
+          "1.5": 0.6066405769028387,
+          "2.0": 0.5537137706923192,
+          "3.0": 0.44785514200689136,
+          "5.0": 0.23612652159323533
+        },
+        "sharpe_at_kill_multiplier": 0.6066405769028387,
+        "sharpe_at_flag_multiplier": 0.5537137706923192
+      }
+    },
+    "lag_sensitivity": {
+      "verdict": "PASS",
+      "reason": "Sharpe retains 108% at lag+1",
+      "detail": {
+        "sharpe_by_lag": {
+          "1": 0.6595652967351547,
+          "2": 0.7105811324286452,
+          "3": 0.6792363632434518
+        },
+        "retention": 1.0773476651152185
+      }
+    },
+    "outliers": {
+      "verdict": "PASS",
+      "reason": "Sharpe 0.74 after dropping the best and worst 1% of periods",
+      "detail": {
+        "base_sharpe": 0.6595652967351547,
+        "trim_frac": 0.01,
+        "sharpe_excluding_tails": 0.7377120685389111,
+        "sharpe_excluding_top": -0.013344048412083658,
+        "sharpe_excluding_top_if_gaussian": 0.23220202293225095,
+        "sharpe_excluding_best_year": 0.5833225779126021,
+        "best_year": 2020
+      }
+    },
+    "subperiods": {
+      "verdict": "PASS",
+      "reason": "74% of years positive; both halves above -0.2",
+      "detail": {
+        "halves": {
+          "first_half": 0.9988390813970449,
+          "second_half": 0.3545529317598974
+        },
+        "decades": {
+          "2000s": 0.9798673755326757,
+          "2010s": 0.7473308326591152,
+          "2020s": 0.2928120931218114
+        },
+        "yearly_returns": {
+          "2000": 0.023482387455634024,
+          "2001": 0.3146467044902126,
+          "2002": 0.3994687399538186,
+          "2003": 0.05237683706627405,
+          "2004": -0.03934718525399006,
+          "2005": 0.05888272975776476,
+          "2006": 0.00801388688537541,
+          "2007": -0.027244542897146284,
+          "2008": 0.1934395041543473,
+          "2009": 0.5429627193186566,
+          "2010": 0.21496854705814838,
+          "2011": 0.051456914114625496,
+          "2012": 0.11629517715107873,
+          "2013": 0.10100612962402966,
+          "2014": -0.024057344505224787,
+          "2015": 0.049624917598505736,
+          "2016": 0.07716065183415965,
+          "2017": 0.07281593308602785,
+          "2018": 0.009512727273419008,
+          "2019": 0.04101959346188955,
+          "2020": 0.5772242532265877,
+          "2021": -0.033821976319017066,
+          "2022": -0.17898034183751366,
+          "2023": -0.07678669230172608,
+          "2024": 0.13795103881946114,
+          "2025": 0.06029606089804895,
+          "2026": -0.07726003061854769
+        },
+        "positive_year_fraction": 0.7407407407407407,
+        "crisis_windows": {
+          "gfc_2008": {
+            "n": 377,
+            "total_return": 0.7966357601328784
+          },
+          "covid_2020": {
+            "n": 104,
+            "total_return": 0.47269687211802225
+          },
+          "inflation_2022": {
+            "n": 251,
+            "total_return": -0.17898034183751366
+          }
+        }
+      }
+    },
+    "parameters": {
+      "verdict": "PASS",
+      "reason": "0% of 9 settings have Sharpe < 0; range [0.66, 0.75]",
+      "detail": {
+        "keys": [
+          "signal.parameters.trend_window",
+          "signal.parameters.momentum_window"
+        ],
+        "grid": [
+          {
+            "params": {
+              "signal.parameters.trend_window": 5,
+              "signal.parameters.momentum_window": 200
+            },
+            "sharpe": 0.7049436891152187
+          },
+          {
+            "params": {
+              "signal.parameters.trend_window": 5,
+              "signal.parameters.momentum_window": 250
+            },
+            "sharpe": 0.6816788670828458
+          },
+          {
+            "params": {
+              "signal.parameters.trend_window": 5,
+              "signal.parameters.momentum_window": 300
+            },
+            "sharpe": 0.7244435669687083
+          },
+          {
+            "params": {
+              "signal.parameters.trend_window": 7,
+              "signal.parameters.momentum_window": 200
+            },
+            "sharpe": 0.6795270228299518
+          },
+          {
+            "params": {
+              "signal.parameters.trend_window": 7,
+              "signal.parameters.momentum_window": 250
+            },
+            "sharpe": 0.6595652967351547
+          },
+          {
+            "params": {
+              "signal.parameters.trend_window": 7,
+              "signal.parameters.momentum_window": 300
+            },
+            "sharpe": 0.6842812563661921
+          },
+          {
+            "params": {
+              "signal.parameters.trend_window": 10,
+              "signal.parameters.momentum_window": 200
+            },
+            "sharpe": 0.7512741731621305
+          },
+          {
+            "params": {
+              "signal.parameters.trend_window": 10,
+              "signal.parameters.momentum_window": 250
+            },
+            "sharpe": 0.7055837441867043
+          },
+          {
+            "params": {
+              "signal.parameters.trend_window": 10,
+              "signal.parameters.momentum_window": 300
+            },
+            "sharpe": 0.7104120507254116
+          }
+        ],
+        "failures": [],
+        "bad_fraction": 0.0
+      }
+    },
+    "statistical": {
+      "verdict": "PASS",
+      "reason": "deflated Sharpe 0.97 at n_trials=10; CI excludes 0",
+      "detail": {
+        "sharpe": 0.6595652967351547,
+        "ci_low": 0.32179604458155864,
+        "ci_high": 0.999722880228151,
+        "deflated_sharpe": 0.9676504582007686,
+        "n_trials": 10
+      }
+    },
+    "holdout": {
+      "verdict": "SKIPPED",
+      "reason": "no validation.holdout_start configured",
+      "detail": {}
+    }
+  },
+  "overall": "NEEDS_REVIEW"
+}

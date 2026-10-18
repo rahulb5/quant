@@ -1,0 +1,282 @@
+{
+  "experiment_id": "EXP-0001",
+  "generated_at": "2026-10-18T22:03:58+00:00",
+  "git_sha": "b43e16db70f1126fd18655e9fe439ecb9d61b5c3",
+  "n_trials": 96,
+  "holdout_start": null,
+  "in_sample_end": "2026-05-11 00:00:00",
+  "n_obs": 1028,
+  "base": {
+    "sharpe": 0.2708547060278014,
+    "cost_bps": 1.0,
+    "lag": 1
+  },
+  "thresholds": {
+    "cost_multipliers": [
+      0.5,
+      1.0,
+      1.5,
+      2.0,
+      3.0,
+      5.0
+    ],
+    "lag_offsets": [
+      0,
+      1,
+      2
+    ],
+    "param_grid": {
+      "portfolio.signal_column": [
+        "raw_pctile_26w",
+        "raw_pctile_52w",
+        "raw_pctile_78w"
+      ],
+      "portfolio.threshold": [
+        80,
+        85,
+        90,
+        95
+      ]
+    },
+    "crisis_windows": {
+      "gfc_2008": [
+        "2008-01-01",
+        "2009-06-30"
+      ],
+      "covid_2020": [
+        "2020-02-01",
+        "2020-06-30"
+      ],
+      "inflation_2022": [
+        "2022-01-01",
+        "2022-12-31"
+      ]
+    },
+    "n_boot": 2000,
+    "seed": 0,
+    "cost_kill_multiplier": 1.5,
+    "cost_flag_multiplier": 2.0,
+    "breakeven_flag_bps": 5.0,
+    "lag_kill_retention": 0.35,
+    "lag_flag_retention": 0.5,
+    "outlier_trim_frac": 0.01,
+    "positive_year_flag_frac": 0.55,
+    "half_sharpe_flag": -0.2,
+    "param_kill_frac": 0.6,
+    "deflated_sharpe_flag": 0.9,
+    "holdout_kill_sharpe": -0.25
+  },
+  "checks": {
+    "cost_stress": {
+      "verdict": "PASS",
+      "reason": "breakeven cost 82.5 bps; survives 2.0x costs",
+      "detail": {
+        "base_cost_bps": 1.0,
+        "breakeven_bps": 82.47795380174927,
+        "sharpe_by_multiplier": {
+          "0.5": 0.27251846043417444,
+          "1.0": 0.2708547060278014,
+          "1.5": 0.26919095583977265,
+          "2.0": 0.26752721015871755,
+          "3.0": 0.2641997334719809,
+          "5.0": 0.25754484688042534
+        },
+        "sharpe_at_kill_multiplier": 0.26919095583977265,
+        "sharpe_at_flag_multiplier": 0.26752721015871755
+      }
+    },
+    "lag_sensitivity": {
+      "verdict": "PASS",
+      "reason": "Sharpe retains 114% at lag+1",
+      "detail": {
+        "sharpe_by_lag": {
+          "1": 0.2708547060278014,
+          "2": 0.3096211552479357,
+          "3": -0.1335158555039819
+        },
+        "retention": 1.143126363904326
+      }
+    },
+    "outliers": {
+      "verdict": "PASS",
+      "reason": "Sharpe 0.27 after dropping the best and worst 1% of periods",
+      "detail": {
+        "base_sharpe": 0.2708547060278014,
+        "trim_frac": 0.01,
+        "sharpe_excluding_tails": 0.2685341270443175,
+        "sharpe_excluding_top": -0.09583418507870536,
+        "sharpe_excluding_top_if_gaussian": 0.07672204882471875,
+        "sharpe_excluding_best_year": 0.18131919908371708,
+        "best_year": 2024
+      }
+    },
+    "subperiods": {
+      "verdict": "FLAG",
+      "reason": "only 52% of years positive (< 55%)",
+      "detail": {
+        "halves": {
+          "first_half": -0.15292543096198793,
+          "second_half": 0.5006234236802295
+        },
+        "decades": {
+          "2000s": 0.31297880279186807,
+          "2010s": -0.27354974330337944,
+          "2020s": 0.6383782585794309
+        },
+        "yearly_returns": {
+          "2006": 0.0,
+          "2007": 0.2719419286790976,
+          "2008": -0.0398830811970593,
+          "2009": -0.03826320812367767,
+          "2010": -0.20671207303031325,
+          "2011": -0.2370295811771318,
+          "2012": 0.06904840952122338,
+          "2013": -0.22991257492853023,
+          "2014": -0.11880426774773223,
+          "2015": -0.0015797110701402106,
+          "2016": 0.012917991066641488,
+          "2017": 0.03706726115380077,
+          "2018": -0.20539776705030732,
+          "2019": 0.20830185076097973,
+          "2020": 0.3576194483028763,
+          "2021": 0.17493668988018674,
+          "2022": 0.13410694038392434,
+          "2023": -0.12900194200140747,
+          "2024": 0.9262392132033801,
+          "2025": 0.3068192129501288,
+          "2026": 0.20471614209070044
+        },
+        "positive_year_fraction": 0.5238095238095238,
+        "crisis_windows": {
+          "gfc_2008": {
+            "n": 76,
+            "total_return": 0.07027004440332951
+          },
+          "covid_2020": {
+            "n": 22,
+            "total_return": 0.06760035422290422
+          },
+          "inflation_2022": {
+            "n": 52,
+            "total_return": 0.13410694038392434
+          }
+        }
+      }
+    },
+    "parameters": {
+      "verdict": "PASS",
+      "reason": "0% of 12 settings have Sharpe < 0; range [0.09, 0.46]",
+      "detail": {
+        "keys": [
+          "portfolio.signal_column",
+          "portfolio.threshold"
+        ],
+        "grid": [
+          {
+            "params": {
+              "portfolio.signal_column": "raw_pctile_26w",
+              "portfolio.threshold": 80
+            },
+            "sharpe": 0.46092874827181285
+          },
+          {
+            "params": {
+              "portfolio.signal_column": "raw_pctile_26w",
+              "portfolio.threshold": 85
+            },
+            "sharpe": 0.41280179729438565
+          },
+          {
+            "params": {
+              "portfolio.signal_column": "raw_pctile_26w",
+              "portfolio.threshold": 90
+            },
+            "sharpe": 0.36642080725992415
+          },
+          {
+            "params": {
+              "portfolio.signal_column": "raw_pctile_26w",
+              "portfolio.threshold": 95
+            },
+            "sharpe": 0.332186898031719
+          },
+          {
+            "params": {
+              "portfolio.signal_column": "raw_pctile_52w",
+              "portfolio.threshold": 80
+            },
+            "sharpe": 0.28928621660268683
+          },
+          {
+            "params": {
+              "portfolio.signal_column": "raw_pctile_52w",
+              "portfolio.threshold": 85
+            },
+            "sharpe": 0.33313813349864085
+          },
+          {
+            "params": {
+              "portfolio.signal_column": "raw_pctile_52w",
+              "portfolio.threshold": 90
+            },
+            "sharpe": 0.2708547060278014
+          },
+          {
+            "params": {
+              "portfolio.signal_column": "raw_pctile_52w",
+              "portfolio.threshold": 95
+            },
+            "sharpe": 0.21477476858999098
+          },
+          {
+            "params": {
+              "portfolio.signal_column": "raw_pctile_78w",
+              "portfolio.threshold": 80
+            },
+            "sharpe": 0.26565210895646396
+          },
+          {
+            "params": {
+              "portfolio.signal_column": "raw_pctile_78w",
+              "portfolio.threshold": 85
+            },
+            "sharpe": 0.155665729334043
+          },
+          {
+            "params": {
+              "portfolio.signal_column": "raw_pctile_78w",
+              "portfolio.threshold": 90
+            },
+            "sharpe": 0.09350482796917424
+          },
+          {
+            "params": {
+              "portfolio.signal_column": "raw_pctile_78w",
+              "portfolio.threshold": 95
+            },
+            "sharpe": 0.10759358365733532
+          }
+        ],
+        "failures": [],
+        "bad_fraction": 0.0
+      }
+    },
+    "statistical": {
+      "verdict": "FLAG",
+      "reason": "deflated Sharpe 0.05 < 0.9 at n_trials=96; CI includes 0",
+      "detail": {
+        "sharpe": 0.2708547060278014,
+        "ci_low": -0.12313424274850168,
+        "ci_high": 0.588392905449157,
+        "deflated_sharpe": 0.05325084397288693,
+        "n_trials": 96
+      }
+    },
+    "holdout": {
+      "verdict": "SKIPPED",
+      "reason": "no validation.holdout_start configured",
+      "detail": {}
+    }
+  },
+  "overall": "NEEDS_REVIEW"
+}

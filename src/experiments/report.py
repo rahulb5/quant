@@ -10,7 +10,8 @@ draft this, the researcher must approve the conclusion."
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import re
+from typing import TYPE_CHECKING, Any
 
 from src.experiments.config import ExperimentConfig
 
@@ -39,7 +40,45 @@ def _portfolio_section(config: ExperimentConfig) -> str:
     )
 
 
-def render_research_note(config: ExperimentConfig, report: "BacktestReport") -> str:
+def _fmt(value: Any, spec: str = ".3f") -> str:
+    return "n/a" if value is None else format(value, spec)
+
+
+def render_robustness_section(robustness: dict[str, Any]) -> str:
+    """Render the body of the note's Robustness section from a robustness.json dict."""
+    lines = [
+        f"**Overall: {robustness['overall']}** (generated {robustness['generated_at']}, "
+        f"code `{(robustness.get('git_sha') or 'unknown')[:8]}`, n_trials={robustness['n_trials']}). "
+        "Verdicts are mechanical; approval remains a researcher decision.",
+        "",
+        "| Check | Verdict | Reason |",
+        "|---|---|---|",
+    ]
+    for name, check in robustness["checks"].items():
+        lines.append(f"| {name} | {check['verdict']} | {check['reason']} |")
+
+    stat = robustness["checks"].get("statistical", {}).get("detail", {})
+    cost = robustness["checks"].get("cost_stress", {}).get("detail", {})
+    lines += [
+        "",
+        f"- Sharpe 95% bootstrap CI: [{_fmt(stat.get('ci_low'), '.2f')}, {_fmt(stat.get('ci_high'), '.2f')}]",
+        f"- Deflated Sharpe (P[true Sharpe > 0]): {_fmt(stat.get('deflated_sharpe'), '.3f')}",
+        f"- Breakeven one-sided cost: {_fmt(cost.get('breakeven_bps'), '.1f')} bps",
+    ]
+    return "\n".join(lines)
+
+
+def replace_robustness_section(note: str, section_body: str) -> str:
+    """Swap the body of the '## Robustness' section, leaving every other section untouched."""
+    pattern = re.compile(r"(## Robustness\n\n).*?(?=\n## |\Z)", re.DOTALL)
+    return pattern.sub(lambda m: m.group(1) + section_body + "\n", note, count=1)
+
+
+def render_research_note(
+    config: ExperimentConfig,
+    report: "BacktestReport",
+    robustness: dict[str, Any] | None = None,
+) -> str:
     """Render a Section-11-shaped research note for one experiment."""
     metrics = report.performance.metrics()
     exec_summary = report.execution.summary(periods_per_year=config.backtest.periods_per_year)
@@ -91,7 +130,7 @@ def render_research_note(config: ExperimentConfig, report: "BacktestReport") -> 
 
 ## Robustness
 
-{_TODO}
+{render_robustness_section(robustness) if robustness else _TODO}
 
 ## Failure Modes
 

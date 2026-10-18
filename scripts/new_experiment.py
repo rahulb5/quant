@@ -18,7 +18,7 @@ Usage:
 
 import argparse
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from src.db.client import db
@@ -52,6 +52,10 @@ if __name__ == "__main__":
     parser.add_argument("--periods-per-year", type=int, default=252)
     parser.add_argument("--parameters", default="{}", help="JSON dict of signal parameters")
     parser.add_argument("--researcher", default=None)
+    parser.add_argument("--holdout-start", default=None,
+                        help="First date withheld from all analysis; default = one year before today")
+    parser.add_argument("--n-trials", type=int, default=1,
+                        help="Signal variants compared before settling on this one (for deflated Sharpe)")
     args = parser.parse_args()
 
     db.open()
@@ -77,7 +81,10 @@ if __name__ == "__main__":
         backtest=BacktestConfig(
             cost_bps=args.cost_bps, lag=args.lag, periods_per_year=args.periods_per_year
         ),
-        validation=ValidationConfig(),
+        validation=ValidationConfig(
+            holdout_start=args.holdout_start or (date.today() - timedelta(days=365)).isoformat(),
+            n_trials=args.n_trials,
+        ),
         status="draft",
     )
 

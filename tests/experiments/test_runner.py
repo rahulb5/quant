@@ -26,6 +26,7 @@ from src.experiments.config import (
     PortfolioConfig,
     SignalConfig,
     ValidationConfig,
+    load_config,
     save_config,
 )
 from src.experiments.registry import ExperimentRecord, get_experiment, insert_experiment
@@ -116,6 +117,11 @@ def test_run_experiment_writes_artifacts_and_completes(tmp_path, mem_db, monkeyp
     note = (experiment_dir / "research_note.md").read_text()
     assert "test hypothesis" in note
 
+    saved_config = load_config(str(config_path))
+    assert saved_config.status == "complete"
+    assert saved_config.git_sha is not None
+    assert saved_config.data_as_of is not None
+
 
 def test_run_experiment_marks_failed_on_exception(tmp_path, mem_db, monkeypatch):
     def boom(config):
@@ -154,3 +160,45 @@ def test_run_experiment_marks_failed_on_exception(tmp_path, mem_db, monkeypatch)
     row = get_experiment("EXP-0002")
     assert row["status"] == "failed"
     assert "synthetic failure" in row["conclusion"]
+
+    saved_config = load_config(str(config_path))
+    assert saved_config.status == "failed"
+    assert "synthetic failure" in saved_config.conclusion
+
+
+def test_run_experiment_respects_holdout_start(tmp_path, mem_db, monkeypatch):
+    _seed_commodity_prices(mem_db)
+    weekly_dates = CommodityUniverse().returns_panel(resample="W-MON").index
+    signal_df = pd.DataFrame(
+        [{"week_date": d, "commodity": c, "sig": s} for d in weekly_dates
+         for c, s in [("Crude Oil", 95), ("Natural Gas", 10)]]
+    )
+    monkeypatch.setattr(runner_module, "_build_signal", lambda config: signal_df)
+
+    holdout = "2024-03-01"
+    config = ExperimentConfig(
+        experiment_id="EXP-0003",
+        hypothesis="test hypothesis",
+        created_at="2026-10-04",
+        data=DataConfig(asset_class="commodity", resample="W-MON"),
+        signal=SignalConfig(module="unused.module", parameters={}),
+        portfolio=PortfolioConfig(
+            rule="equal_weight_long_threshold", date_column="week_date",
+            asset_column="commodity", signal_column="sig", threshold=90,
+        ),
+        backtest=BacktestConfig(periods_per_year=52),
+        validation=ValidationConfig(holdout_start=holdout),
+    )
+    experiment_dir = tmp_path / "EXP-0003"
+    experiment_dir.mkdir()
+    config_path = experiment_dir / "config.yaml"
+    save_config(config, str(config_path))
+    insert_experiment(ExperimentRecord(
+        id="EXP-0003", hypothesis=config.hypothesis, signal_name="fake",
+        asset_class="commodity", config_path=str(config_path), created_at=config.created_at,
+    ))
+
+    result = run_experiment(str(config_path))
+
+    assert result.report.execution.net_returns.index.max() < pd.Timestamp(holdout)
+    assert pd.Timestamp(load_config(str(config_path)).data_as_of) < pd.Timestamp(holdout)
