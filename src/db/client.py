@@ -26,14 +26,20 @@ from src.shared.utils import logger
 
 
 class Database:
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, read_only: bool = False) -> None:
         self.path = path
+        self.read_only = read_only
         self._con: duckdb.DuckDBPyConnection | None = None
 
     # ── Connect & migrate ────────────────────────────────────────────────────
 
     def open(self) -> None:
         if self._con is not None:
+            return
+
+        if self.read_only:
+            logger.info(f"Opening DuckDB at {self.path} (read-only)")
+            self._con = duckdb.connect(self.path, read_only=True)
             return
 
         if self.path != ":memory:":
@@ -65,7 +71,7 @@ class Database:
 
     def run(self, sql: str, params: list[Any] | None = None) -> int:
         """Run an INSERT/UPDATE/DELETE and return rows changed."""
-        self._assert_open()
+        self._assert_writable()
         result = self._con.execute(sql, params or [])  # type: ignore[union-attr]
         return result.rowcount
 
@@ -78,7 +84,7 @@ class Database:
                 q("INSERT INTO prices ..."),
             ))
         """
-        self._assert_open()
+        self._assert_writable()
         self._con.execute("BEGIN")  # type: ignore[union-attr]
         try:
             def q(sql: str, params: list[Any] | None = None) -> None:
@@ -139,6 +145,11 @@ class Database:
             raise
 
     # ── Helpers ──────────────────────────────────────────────────────────────
+
+    def _assert_writable(self) -> None:
+        if self.read_only:
+            raise RuntimeError("Database is open read-only; writes are not allowed.")
+        self._assert_open()
 
     def _assert_open(self) -> None:
         if self._con is None:

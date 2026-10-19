@@ -122,3 +122,29 @@ def test_transaction_rolls_back_on_error(db):
 
     rows = db.query("SELECT ticker FROM assets WHERE ticker = 'ROLLBACK_TEST'")
     assert len(rows) == 0
+
+
+# ── Read-only mode ────────────────────────────────────────────────────────────
+
+def test_read_only_reads_but_rejects_writes_and_skips_migrations(tmp_path):
+    path = str(tmp_path / "ro.db")
+    rw = Database(path)
+    rw.open()
+    version_before = rw.query("SELECT MAX(version) AS v FROM schema_version")[0]["v"]
+    rw.close()
+
+    ro = Database(path, read_only=True)
+    ro.open()
+    try:
+        assert ro.query("SELECT MAX(version) AS v FROM schema_version")[0]["v"] == version_before
+        with pytest.raises(RuntimeError, match="read-only"):
+            ro.run("DELETE FROM schema_version")
+        with pytest.raises(RuntimeError, match="read-only"):
+            ro.transaction(lambda q: q("DELETE FROM schema_version"))
+    finally:
+        ro.close()
+
+    rw = Database(path)
+    rw.open()
+    assert rw.query("SELECT MAX(version) AS v FROM schema_version")[0]["v"] == version_before
+    rw.close()
