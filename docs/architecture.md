@@ -1,7 +1,7 @@
 # Architecture
 
-**Last audited:** 2026-10-18 (after adding the robustness engine, the holdout mechanism, and
-config/registry status sync with git SHA + data as-of stamping)
+**Last audited:** 2026-10-19 (after adding the Streamlit dashboard shell + Research section, the
+experiment classification block, migration v10, and the read-only DB mode)
 **Audited by:** Claude Code (`/update-architecture` skill maintains this file — see bottom section)
 
 This document is the Phase 1 deliverable from `quant_research_os_build_plan.md`: an inventory and
@@ -73,7 +73,7 @@ This is the most mature part of the system — `src/backtest/`:
 exists, but one level up, in `src/experiments/` (below), not inside `src/backtest/`.
 
 ### How are experiments identified?
-`src/experiments/` is a hybrid registry: a DuckDB `experiments` table (migration version 8 —
+`src/experiments/` is a hybrid registry: a DuckDB `experiments` table (migration version 8, now at v10 —
 `id`, `hypothesis`, `status`, `sharpe`, `cagr`, `max_drawdown`, `ann_turnover`, ...) for queryable
 metadata, plus a filesystem `experiments/EXP-000N/` directory per experiment holding
 `config.yaml`, `results.json`, `diagnostics.json`, `performance.parquet`, `charts/`, and
@@ -129,6 +129,21 @@ Both live experiments have been run through it (both `NEEDS_REVIEW`; neither has
 they predate the mechanism). `scripts/new_experiment.py` defaults `holdout_start` to one year
 before the scaffold date and takes `--n-trials`.
 
+**Classification.** Each config carries an optional `classification` block
+(`ClassificationConfig`: `asset_class` [market], `universe`, `signal_family`, `frequency`,
+`direction`; allowed values are module-level tuples in `config.py`), separate from the technical
+`data.asset_class` key (`commodity`/`equity`). Migration v10 adds `market`, `universe`,
+`signal_family`, `frequency`, `direction` to the `experiments` table; `scripts/new_experiment.py`
+requires them. Both live experiments are backfilled.
+
+### How are results viewed?
+`dashboard/` is a read-only Streamlit app (`st.navigation` sections; only "Research" exists).
+Run: `PYTHONPATH=<repo> <venv>/bin/python -m streamlit run dashboard/app.py`. The Research pages
+read experiment folders through `src/experiments/artifacts.py` (no DuckDB, no Streamlit imports),
+so a running dashboard never holds the DB write lock. `Database(path, read_only=True)` exists
+(skips migrations; `run`/`transaction` raise) as groundwork for future Macro/Markets pages; no page
+uses it yet. No run/approve/edit controls; the verdicts never say "approved".
+
 ### Where are results stored?
 Both places now, depending on what's being asked: structured/queryable headline metrics live in
 the `experiments` DuckDB table (including the robustness summary columns); the full diagnostic
@@ -146,7 +161,10 @@ narrow, intentional exception: a single inline rule needed to turn a signal into
 `pytest`, coverage is improving but still uneven:
 - `tests/backtest/` — full coverage of `metrics`, `performance`, `execution`, `conditioning`,
   `regimes`, `reference`, `backtest`. Solid.
-- `tests/db/` — covers `src/db/client.py`.
+- `tests/db/` — covers `src/db/client.py`, including read-only mode.
+- `tests/dashboard/` — `streamlit.testing.v1.AppTest` smoke tests of every page against a tmp
+  experiments tree (`QUANT_EXPERIMENTS_DIR`), including an experiment with no `robustness.json`.
+- `tests/experiments/test_artifacts.py` — the artifacts loader (bare drafts, holdout states, env override).
 - `tests/collectors/` — covers the three newly-refactored collectors (`currency`, `macro`, `cot`):
   asset/series creation, upsert idempotency, audit logging, cutoff/mode resolution. Uses an
   in-memory DuckDB monkeypatched into both the collector module and `src/collectors/base.py`
@@ -161,7 +179,7 @@ narrow, intentional exception: a single inline rule needed to turn a signal into
   Gaussian trim shift.
 - `tests/experiments/test_robustness.py` — per-check verdict logic on synthetic series, dotted-path
   overrides, and an integration run (artifacts, registry row, note-section replacement, holdout
-  stays locked until unlocked then frozen). 409 tests total.
+  stays locked until unlocked then frozen). 429 tests total.
 - `tests/experiments/` — covers `universe` (asset-id resolution, returns-panel pivoting, and a
   direct check that `resample='W-MON'` reproduces `weekly_prices_with_trend()`'s own dates),
   `portfolio`, `registry` (CRUD against an in-memory DB), `config` (yaml round-trip), and one
@@ -200,7 +218,7 @@ don't exist — reasonable, since the experiment system they'd operate on doesn'
 | Raw/processed data split | — | **MISSING** | Plan's Section 5.1; everything goes straight into DuckDB |
 | Futures roll methodology | — | **MISSING** | Needed before any commodity curve work; no continuous-contract/roll logic exists for the 300xxx asset block |
 | Portfolio/risk layer (general) | — | **MISSING** | Phase 7 — correctly deferred; see the narrow exception above |
-| Dashboard | — | **MISSING** | Phase 6 — correctly deferred |
+| Dashboard | `dashboard/`, `src/experiments/artifacts.py` | **KEEP** | Read-only Streamlit shell + Research section (experiment list, detail with Performance/Robustness/Diagnostics/Note/Config tabs). Macro/Markets sections, Compare page, approval state not built |
 
 ---
 
@@ -233,9 +251,9 @@ don't exist — reasonable, since the experiment system they'd operate on doesn'
 
 1. Add `tests/collectors/` coverage for `commodity`/`equity`/`gsci` (same monkeypatch pattern as
    `currency`/`macro`/`cot` — see `tests/collectors/test_cot.py` for the `_log_fetch` gotcha).
-2. Streamlit dashboard (Phase 6) over `experiments` + `experiments/EXP-000N/` artifacts — the
-   approval screen for signals — then an approval state and signal-agnostic paper-trading engine
-   (Phase 8) once something survives the gate.
+2. Dashboard follow-ups: market/macro read API (`src/data_access/`) with Macro/Markets sections, a
+   Compare page once there are >2 experiments, then an approval state and signal-agnostic
+   paper-trading engine (Phase 8) once something survives the gate.
 3. Close the open research questions in `yield_curve_regime.ipynb` (pick a signal variant via its
    existing IC analysis) before extracting it into `src/signals/`.
 4. Fix `scripts/update_commodities.py`'s stale Stooq-era calls.

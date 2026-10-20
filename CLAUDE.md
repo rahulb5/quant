@@ -20,3 +20,11 @@ export PYTHON=/Users/rhlbh/projects/claudeProjects/bin/python
 - **Engine:** DuckDB
 - **File:** `data/quant.db` (relative to project root)
 - **Singleton:** imported via `from src.db.client import db`; always call `db.open()` before use and `db.close()` after.
+
+## Dashboard
+
+Read-only Streamlit app. Run from the project root:
+```
+PYTHONPATH=/Users/rhlbh/projects/claudeProjects/quant /Users/rhlbh/projects/claudeProjects/bin/python -m streamlit run dashboard/app.py
+```
+Research pages read `experiments/` folders (override with `QUANT_EXPERIMENTS_DIR`), not DuckDB.
