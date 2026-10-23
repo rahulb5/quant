@@ -172,9 +172,13 @@ with tab_diag:
     if d is None:
         st.info("No diagnostics.json for this experiment.")
     else:
-        for name, labels in d["by_regime"].items():
-            st.subheader(f"Regime: {name}")
-            st.dataframe(pd.DataFrame(labels).T, width="stretch")
+        st.subheader("Performance by regime")
+        regime_tbl = pd.concat(
+            {name: pd.DataFrame(labels) for name, labels in d["by_regime"].items()},
+            axis=1,
+        )
+        regime_tbl.columns = [f"{name}: {label}" for name, label in regime_tbl.columns]
+        st.dataframe(regime_tbl, width="stretch")
 
         fr = d["factor_regression"]
         st.subheader("Factor regression")

@@ -68,3 +68,42 @@ def test_detail_unknown_or_missing_id_warns(tree):
         at = _run("research/experiment.py", **params)
         assert not at.exception
         assert at.warning
+
+
+# ── Macro explorer ───────────────────────────────────────────────────────────
+
+from tests.macro.conftest import macro_db_path  # noqa: E402,F401  (fixture)
+
+
+@pytest.fixture
+def macro_db(macro_db_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", macro_db_path)
+    return macro_db_path
+
+
+def test_macro_explorer_fred_renders(macro_db):
+    at = _run("macro/explorer.py")
+
+    assert not at.exception
+    assert at.metric[0].value == "60 obs"  # 10y history → default 5y lookback at 12/yr
+    at.sidebar.selectbox[1].select("yoy_pct").run()
+    assert not at.exception
+    assert len(at.dataframe) == 1
+
+
+def test_macro_explorer_cot_hides_exchange_keyed(macro_db):
+    at = _run("macro/explorer.py")
+    at.sidebar.radio[0].set_value("CFTC").run()
+
+    assert not at.exception
+    assert at.sidebar.selectbox[1].options == ["CFTC.DISAGG_FUT.067651 — CRUDE OIL"]
+    at.sidebar.checkbox[0].check().run()
+    assert len(at.sidebar.selectbox[1].options) == 2
+
+
+def test_macro_explorer_missing_db_errors_cleanly(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "missing.db"))
+    at = _run("macro/explorer.py")
+
+    assert not at.exception
+    assert at.error

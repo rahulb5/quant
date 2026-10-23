@@ -28,3 +28,4 @@ Read-only Streamlit app. Run from the project root:
 PYTHONPATH=/Users/rhlbh/projects/claudeProjects/quant /Users/rhlbh/projects/claudeProjects/bin/python -m streamlit run dashboard/app.py
 ```
 Research pages read `experiments/` folders (override with `QUANT_EXPERIMENTS_DIR`), not DuckDB.
+Macro pages read DuckDB read-only via `src/macro/data.py`, opening and closing per query so collectors can still write (override path with `DB_PATH`).

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from src.db.client import Database
 from src.experiments import artifacts
+from src.macro import data as macro_data
+from src.shared.config import config
 
 # Streamlit badge colours; the word "approved" is deliberately never shown.
 VERDICT_COLORS = {
@@ -76,3 +81,40 @@ def list_experiments():
 
 def load_experiment(experiment_id: str):
     return cached_load(experiment_id, artifacts.artifacts_mtime())
+
+
+# ── Macro (read-only DuckDB) ─────────────────────────────────────────────────
+
+
+def _db() -> Database:
+    """Fresh read-only handle; query_df() opens and closes it per call so the
+    dashboard never holds a lock a collector needs. DB_PATH is re-read so tests
+    can point at a temp file."""
+    return Database(os.environ.get("DB_PATH", config.db_path), read_only=True)
+
+
+def _db_mtime() -> float:
+    path = Path(_db().path)
+    return path.stat().st_mtime if path.exists() else 0.0
+
+
+@st.cache_data(show_spinner=False)
+def _cached_catalog(path: str, mtime: float) -> pd.DataFrame:
+    return macro_data.list_series(_db())
+
+
+@st.cache_data(show_spinner=False)
+def _cached_series(path: str, mtime: float, source: str, code: str, vintage: str,
+                   measure: str | None, pct_of_oi: bool) -> pd.Series:
+    if source == "FRED":
+        return macro_data.load_fred(_db(), code, vintage=vintage)
+    return macro_data.load_cot(_db(), code, measure, pct_of_oi=pct_of_oi)
+
+
+def load_catalog() -> pd.DataFrame:
+    return _cached_catalog(_db().path, _db_mtime())
+
+
+def load_series(source: str, code: str, vintage: str = "latest",
+                measure: str | None = None, pct_of_oi: bool = False) -> pd.Series:
+    return _cached_series(_db().path, _db_mtime(), source, code, vintage, measure, pct_of_oi)

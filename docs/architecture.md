@@ -1,6 +1,7 @@
 # Architecture
 
-**Last audited:** 2026-10-19 (after adding the Streamlit dashboard shell + Research section, the
+**Last audited:** 2026-10-22 (after adding the Macro explorer dashboard section, `src/macro/`, and
+the Diagnostics regime-table rework; previously the dashboard shell + Research section, the
 experiment classification block, migration v10, and the read-only DB mode)
 **Audited by:** Claude Code (`/update-architecture` skill maintains this file — see bottom section)
 
@@ -137,12 +138,23 @@ before the scaffold date and takes `--n-trials`.
 requires them. Both live experiments are backfilled.
 
 ### How are results viewed?
-`dashboard/` is a read-only Streamlit app (`st.navigation` sections; only "Research" exists).
+`dashboard/` is a read-only Streamlit app with two `st.navigation` sections: "Research" and "Macro".
 Run: `PYTHONPATH=<repo> <venv>/bin/python -m streamlit run dashboard/app.py`. The Research pages
 read experiment folders through `src/experiments/artifacts.py` (no DuckDB, no Streamlit imports),
-so a running dashboard never holds the DB write lock. `Database(path, read_only=True)` exists
-(skips migrations; `run`/`transaction` raise) as groundwork for future Macro/Markets pages; no page
-uses it yet. No run/approve/edit controls; the verdicts never say "approved".
+so a running dashboard never holds the DB write lock. The Research Diagnostics tab shows one
+"Performance by regime" table (metrics as rows, `regime: label` columns).
+
+The **Macro** section (`dashboard/macro/explorer.py`) is the first DuckDB-backed page. It uses
+`Database(path, read_only=True)` (skips migrations; `run`/`transaction` raise) through short-lived
+handles in `dashboard/components.py` (`load_catalog()`, `load_series()`), cached with
+`st.cache_data` keyed on the DB file's mtime, so a collector run invalidates the cache and the
+dashboard never holds a lock. The page picks a FRED series (latest or first-release vintage) or a
+CFTC COT positioning measure (optionally % of open interest), applies a level/change transform,
+and plots it with a rolling z-score. Data access and math live outside Streamlit in `src/macro/`:
+`data.py` (`list_series`, `load_fred`, `load_cot`, `cot_measures`; each takes a `Database`) and
+`transforms.py` (pure: `periods_per_year` inferred from dates since stored `frequency` labels are
+unreliable, `transform`, `rolling_zscore`). No run/approve/edit controls; the verdicts never say
+"approved".
 
 ### Where are results stored?
 Both places now, depending on what's being asked: structured/queryable headline metrics live in
@@ -163,7 +175,9 @@ narrow, intentional exception: a single inline rule needed to turn a signal into
   `regimes`, `reference`, `backtest`. Solid.
 - `tests/db/` — covers `src/db/client.py`, including read-only mode.
 - `tests/dashboard/` — `streamlit.testing.v1.AppTest` smoke tests of every page against a tmp
-  experiments tree (`QUANT_EXPERIMENTS_DIR`), including an experiment with no `robustness.json`.
+  experiments tree (`QUANT_EXPERIMENTS_DIR`), including an experiment with no `robustness.json`,
+  and the Macro explorer against a temp DuckDB (`DB_PATH`).
+- `tests/macro/` — `src/macro/data.py` (vintages, COT measures) and `transforms.py`.
 - `tests/experiments/test_artifacts.py` — the artifacts loader (bare drafts, holdout states, env override).
 - `tests/collectors/` — covers the three newly-refactored collectors (`currency`, `macro`, `cot`):
   asset/series creation, upsert idempotency, audit logging, cutoff/mode resolution. Uses an
@@ -179,7 +193,7 @@ narrow, intentional exception: a single inline rule needed to turn a signal into
   Gaussian trim shift.
 - `tests/experiments/test_robustness.py` — per-check verdict logic on synthetic series, dotted-path
   overrides, and an integration run (artifacts, registry row, note-section replacement, holdout
-  stays locked until unlocked then frozen). 429 tests total.
+  stays locked until unlocked then frozen). 450 tests total.
 - `tests/experiments/` — covers `universe` (asset-id resolution, returns-panel pivoting, and a
   direct check that `resample='W-MON'` reproduces `weekly_prices_with_trend()`'s own dates),
   `portfolio`, `registry` (CRUD against an in-memory DB), `config` (yaml round-trip), and one
@@ -218,7 +232,8 @@ don't exist — reasonable, since the experiment system they'd operate on doesn'
 | Raw/processed data split | — | **MISSING** | Plan's Section 5.1; everything goes straight into DuckDB |
 | Futures roll methodology | — | **MISSING** | Needed before any commodity curve work; no continuous-contract/roll logic exists for the 300xxx asset block |
 | Portfolio/risk layer (general) | — | **MISSING** | Phase 7 — correctly deferred; see the narrow exception above |
-| Dashboard | `dashboard/`, `src/experiments/artifacts.py` | **KEEP** | Read-only Streamlit shell + Research section (experiment list, detail with Performance/Robustness/Diagnostics/Note/Config tabs). Macro/Markets sections, Compare page, approval state not built |
+| Dashboard | `dashboard/`, `src/experiments/artifacts.py` | **KEEP** | Read-only Streamlit shell + Research section (experiment list, detail with Performance/Robustness/Diagnostics/Note/Config tabs). Markets section, Compare page, approval state not built |
+| Macro explorer | `dashboard/macro/explorer.py`, `src/macro/{data,transforms}.py`, `tests/macro/` | **KEEP** | First read-only-DuckDB page; data access and transforms kept Streamlit-free and tested. New files are still uncommitted |
 
 ---
 
@@ -237,6 +252,10 @@ don't exist — reasonable, since the experiment system they'd operate on doesn'
   cost assumption is the load-bearing one.
 - No raw/processed data separation or futures roll methodology — both prerequisites for any
   commodity curve work.
+- Macro explorer: CFTC series keyed by exchange (e.g. `…NYME`) mix contracts across dates (a
+  collector keying bug); the page hides them by default rather than fixing the collector. FRED
+  `macro_series.frequency` labels are unreliable (some weekly series tagged `daily`), so frequency is
+  inferred from dates.
 - `scripts/update_commodities.py` is broken — calls `collector.fetch_single(stooq_ticker=...)` and
   reads `entry["stooq"]`, neither of which exist on the current Yahoo-Finance-based
   `CommodityCollector` (a leftover from a Stooq -> yfinance migration). `scripts/update_all.py`
@@ -251,7 +270,7 @@ don't exist — reasonable, since the experiment system they'd operate on doesn'
 
 1. Add `tests/collectors/` coverage for `commodity`/`equity`/`gsci` (same monkeypatch pattern as
    `currency`/`macro`/`cot` — see `tests/collectors/test_cot.py` for the `_log_fetch` gotcha).
-2. Dashboard follow-ups: market/macro read API (`src/data_access/`) with Macro/Markets sections, a
+2. Dashboard follow-ups: a Markets section (reuse the `src/macro/`-style read-only loaders), a
    Compare page once there are >2 experiments, then an approval state and signal-agnostic
    paper-trading engine (Phase 8) once something survives the gate.
 3. Close the open research questions in `yield_curve_regime.ipynb` (pick a signal variant via its
