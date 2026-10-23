@@ -37,3 +37,6 @@ logs/
 
 # OS
 .DS_Store
+
+# Pre-migration DB backups
+data/quant.db.bak-*
