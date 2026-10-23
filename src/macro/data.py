@@ -14,7 +14,7 @@ optionally as % of open interest.
 
 Usage:
     from src.db.client import Database
-    from src.macro.data import list_series, load_fred, load_cot
+    from src.macro.data import list_series, load_fred, load_cot, load_vintages
 
     ro = Database("data/quant.db", read_only=True)
     catalog = list_series(ro)
@@ -124,6 +124,23 @@ def load_fred(db: Database, code: str, vintage: Vintage = "latest") -> pd.Series
     s = pd.Series(df["value"].to_numpy(), index=pd.DatetimeIndex(df["period_date"]), name=code)
     s.attrs["release_date"] = pd.Series(pd.DatetimeIndex(df["release_date"]), index=s.index)
     return s
+
+
+def load_vintages(db: Database, code: str) -> pd.DataFrame:
+    """Every stored release of a FRED series: columns period_date, release_date, value.
+
+    Input to src.macro.pit (as_of / realtime). Sorted by release_date, then
+    period_date; empty (same columns) if the code has no observations.
+    """
+    df = db.query_df("""
+        SELECT mo.period_date, mo.release_date, mo.value
+        FROM macro_observations mo JOIN macro_series ms ON ms.id = mo.series_id
+        WHERE ms.code = ?
+        ORDER BY mo.release_date, mo.period_date
+    """, [code])
+    df["period_date"] = pd.to_datetime(df["period_date"])
+    df["release_date"] = pd.to_datetime(df["release_date"])
+    return df
 
 
 def load_cot(db: Database, code: str, measure: str, pct_of_oi: bool = False) -> pd.Series:

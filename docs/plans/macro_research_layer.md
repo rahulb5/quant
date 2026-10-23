@@ -1,6 +1,6 @@
 # Macro research layer — implementation plan (blended)
 
-**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0 built 2026-10-22** (see "C0 outcome"); C1 onwards not started.
+**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0 done 2026-10-22** (see "C0 outcome"); C1 in progress.
 Replaces Part B of `docs/plans/cot_fix_and_macro_regimes.md`. Part A there (the COT fix) is complete
 and is a prerequisite.
 **Inputs:** the original Part B, and `docs/Macro Research Layer — Design Review.md`. Where they
@@ -189,8 +189,8 @@ restricted to `AFFECTED`, so it never touches the ICE codes.
   each year by seasonal factors, so they aren't treated as unrevised. Use the **NSA** series
   `ICNSA` (and a YoY, which needs no seasonal adjustment) as `UNREVISED_SERIES` with a 5-day lag;
   verify its revisions when C2 adds it. ICSA stays as a real-time cross-check from 2009.
-- **Not yet applied to the live DB:** run `scripts/purge_stamped_fred_rows.py` (backup + re-fetch +
-  purge).
+- **Applied to the live DB 2026-10-22** and verified: no stamped rows in the five series, one
+  `is_final` per period, ICE rows and all other tables unchanged, spot checks as above.
 
 ## C1. Point-in-time layer (`src/macro/pit.py`)
 
@@ -233,6 +233,32 @@ in H.10) takes its timing from real vintages.
 **COT.** `release_date = report_date + 3` is correct except in holiday weeks, when the CFTC
 publishes on Monday and +3 lands a business day early. Add a CFTC holiday-week adjustment if a
 positioning signal is sensitive to it; otherwise note it in the docstring.
+
+### C1 outcome (2026-10-22)
+
+Built as `src/macro/pit.py` (`as_of`, `latest`, `realtime`, `unrevised`, `pit_series`, `to_daily`,
+`staleness`, `first_vintage_date`, `UNREVISED_SERIES`, `RELEASE_LAG_OVERRIDES`) plus
+`load_vintages()` in `src/macro/data.py`; 19 tests in `tests/macro/test_pit.py`. Differences from
+the sketch above:
+
+- **No cache.** `realtime()` rebuilds PAYEMS (860 vintages), INDPRO (1,223) and UNRATE (800) in
+  0.2–0.4 s each, so the cache is left out until something needs it.
+- **`pit_series(vintages, fn, code)`** dispatches to `unrevised()` for `UNREVISED_SERIES` codes
+  and applies `RELEASE_LAG_OVERRIDES` otherwise.
+- **`fn` must be causal** (value at period p uses only periods <= p). `realtime()` keeps only the
+  newest period's value; `unrevised()` applies `fn` once to the whole series.
+- **Worked example on the real DB (since 1990):**
+
+  | Series / transform | Real-time vs first-release stitched (mean / max) | Real-time vs latest vintage (mean / max) |
+  |---|---|---|
+  | PAYEMS YoY % | 0.30 / 1.02 pp | 0.25 / 0.97 pp |
+  | PAYEMS 3m annualised % | 0.45 / 4.00 pp | 0.44 / 2.65 pp |
+  | INDPRO YoY % | 3.10 / **24.5** pp | 1.24 / 3.92 pp |
+  | UNRATE gap to 12-month low | 0.01 / 0.10 pp | 0.05 / 0.30 pp |
+
+  Sept 2008 payrolls YoY read -0.21% in real time, -0.41% stitched and -0.58% in the latest
+  vintage. INDPRO's 24.5 pp gap is an index rebase between vintages, which stitching mixes and
+  as-of snapshots don't.
 
 **Tests:**
 - Truncation invariance: `realtime()` on vintages cut at date `k` equals the full output's prefix
