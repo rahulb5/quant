@@ -1,8 +1,9 @@
 # Architecture
 
-**Last audited:** 2026-10-22 (after adding the Macro explorer dashboard section, `src/macro/`, and
-the Diagnostics regime-table rework; previously the dashboard shell + Research section, the
-experiment classification block, migration v10, and the read-only DB mode)
+**Last audited:** 2026-10-22 (after the COT collector fix: 35-contract catalog keyed by contract code,
+exchange-keyed data purged and re-backfilled, TFF field-name fix; previously the Macro explorer
+dashboard section, `src/macro/`, the dashboard shell + Research section, the experiment
+classification block, migration v10, and the read-only DB mode)
 **Audited by:** Claude Code (`/update-architecture` skill maintains this file — see bottom section)
 
 This document is the Phase 1 deliverable from `quant_research_os_build_plan.md`: an inventory and
@@ -21,6 +22,14 @@ standalone scripts into this pattern — COT and GSCI/Commodity still bypass `ru
 their bulk multi-series fetches (`fetch_report_type()`, `fetch_single()`) and call `_log_fetch()`
 directly instead, which is an intentional, established escape valve for one-call-fetches-many-series
 shapes, not an inconsistency.
+
+COT only collects the `COT_CONTRACTS` catalog (35 contracts across energy, metals, ags, softs, rates,
+equity index, FX and VIX; legacy/legacy-combined/disaggregated/TFF reports as applicable). Every series
+is keyed by the 6-character CFTC **contract** code (`CFTC.<REPORT>.<contract>`), never the exchange
+code; adding a contract is one catalog entry plus `fetch_cot.py --mode backfill --contract <code>`.
+Known history breaks (Russell 2000 e-mini moved to ICE 2008–2018; SOFR from 2018) are documented in
+the catalog, not spliced. `src/collectors/cot_cleanup.py` + `scripts/migrate_cot_contract_keys.py` is
+the one-off purge of the old exchange-keyed series.
 
 `scripts/fetch_*.py` for all six sources are now thin CLI wrappers around the collector classes —
 argument parsing and summary printing only, no fetch/parse/upsert logic.
@@ -149,7 +158,7 @@ The **Macro** section (`dashboard/macro/explorer.py`) is the first DuckDB-backed
 handles in `dashboard/components.py` (`load_catalog()`, `load_series()`), cached with
 `st.cache_data` keyed on the DB file's mtime, so a collector run invalidates the cache and the
 dashboard never holds a lock. The page picks a FRED series (latest or first-release vintage) or a
-CFTC COT positioning measure (optionally % of open interest), applies a level/change transform,
+CFTC COT positioning measure (filterable by asset group; optionally % of open interest), applies a level/change transform,
 and plots it with a rolling z-score. Data access and math live outside Streamlit in `src/macro/`:
 `data.py` (`list_series`, `load_fred`, `load_cot`, `cot_measures`; each takes a `Database`) and
 `transforms.py` (pure: `periods_per_year` inferred from dates since stored `frequency` labels are
@@ -165,8 +174,8 @@ research (formulaic alphas, yield-curve regime) is still notebook-only, as descr
 
 ### How is portfolio construction separated from signal research?
 Still no general portfolio/risk layer (no `src/portfolio/`, no CVXPY, no optimizer) — correctly
-deferred per the build plan. `src/experiments/portfolio.py`'s `equal_weight_long_basket()` is the
-narrow, intentional exception: a single inline rule needed to turn a signal into weights for
+deferred per the build plan. `src/experiments/portfolio.py`'s `equal_weight_long_basket()` and `decile_long_short()` are the
+narrow, intentional exceptions: single config-driven rules needed to turn a signal into weights for
 `run_backtest()`, not a step toward a general optimizer.
 
 ### How are tests performed?
@@ -177,10 +186,13 @@ narrow, intentional exception: a single inline rule needed to turn a signal into
 - `tests/dashboard/` — `streamlit.testing.v1.AppTest` smoke tests of every page against a tmp
   experiments tree (`QUANT_EXPERIMENTS_DIR`), including an experiment with no `robustness.json`,
   and the Macro explorer against a temp DuckDB (`DB_PATH`).
-- `tests/macro/` — `src/macro/data.py` (vintages, COT measures) and `transforms.py`.
+- `tests/macro/` — `src/macro/data.py` (vintages, COT measures, asset groups) and `transforms.py`.
 - `tests/experiments/test_artifacts.py` — the artifacts loader (bare drafts, holdout states, env override).
 - `tests/collectors/` — covers the three newly-refactored collectors (`currency`, `macro`, `cot`):
-  asset/series creation, upsert idempotency, audit logging, cutoff/mode resolution. Uses an
+  asset/series creation, upsert idempotency, audit logging, cutoff/mode resolution. COT also tests
+  contract keying (two contracts on one exchange stay separate, whitespace trimmed, rows with no code
+  skipped), the catalog, realistic TFF/legacy field names, and `cot_cleanup` (`test_cot_cleanup.py`).
+  464 tests total. Uses an
   in-memory DuckDB monkeypatched into both the collector module and `src/collectors/base.py`
   (`_log_fetch` imports its own `db` reference, so both must be patched) and stubs the network
   boundary (`_fetch_ohlcv`, `fred.get_series*`, `_fetch_all_rows`).
@@ -193,8 +205,8 @@ narrow, intentional exception: a single inline rule needed to turn a signal into
   Gaussian trim shift.
 - `tests/experiments/test_robustness.py` — per-check verdict logic on synthetic series, dotted-path
   overrides, and an integration run (artifacts, registry row, note-section replacement, holdout
-  stays locked until unlocked then frozen). 450 tests total.
-- `tests/experiments/` — covers `universe` (asset-id resolution, returns-panel pivoting, and a
+  stays locked until unlocked then frozen).
+- Other `tests/experiments/` files — cover `universe` (asset-id resolution, returns-panel pivoting, and a
   direct check that `resample='W-MON'` reproduces `weekly_prices_with_trend()`'s own dates),
   `portfolio`, `registry` (CRUD against an in-memory DB), `config` (yaml round-trip), and one
   happy-path + one failure-path integration test for `runner.run_experiment()` against a
@@ -204,7 +216,8 @@ narrow, intentional exception: a single inline rule needed to turn a signal into
 Via `CLAUDE.md` (Python env + DB conventions) and the persistent memory file at
 `memory/MEMORY.md` (gitignored, mirrored into Claude Code's auto-memory). No repo-exposed tool
 surface yet (`search_experiments()`, `create_experiment()`, etc. from the build plan's Phase 5
-don't exist — reasonable, since the experiment system they'd operate on doesn't exist yet either).
+don't exist). The experiment registry and artifacts loader they would wrap now exist, so this is no
+longer blocked, just not started.
 
 ---
 
@@ -216,7 +229,8 @@ don't exist — reasonable, since the experiment system they'd operate on doesn'
 | Typed insert helpers | `data/repository.py` | **KEEP** | |
 | `BaseCollector` | `src/collectors/base.py` | **KEEP** | Good abstraction; now used by all six collectors |
 | Commodity/Equity/GSCI collectors | `src/collectors/{commodity,equity,gsci}.py` | **KEEP** | Follow the `BaseCollector` pattern correctly; still untested |
-| Currency/Macro/COT collectors | `src/collectors/{currency,macro,cot}.py` | **KEEP** | Refactored from standalone scripts into `BaseCollector` subclasses; tested |
+| Currency/Macro/COT collectors | `src/collectors/{currency,macro,cot}.py` | **KEEP** | Refactored from standalone scripts into `BaseCollector` subclasses; tested. COT now collects a 35-contract catalog keyed by contract code |
+| COT cleanup | `src/collectors/cot_cleanup.py`, `scripts/migrate_cot_contract_keys.py` | **KEEP** | One-off purge of exchange-keyed series (dry-run, backup, FK-ordered deletes); idempotent, tested. Already run; safe to retire later |
 | Backtest engine | `src/backtest/*.py` | **KEEP** | Most mature layer in the repo; ahead of where the build plan assumes this stage would be |
 | COT commercial positioning signal | `src/signals/cot_commercial_positioning.py` | **KEEP** | First signal extracted into a reusable `calculate_signal(data, config)`-style module; tested |
 | Formulaic alpha_19 signal | `src/signals/formulaic_alpha_19.py` | **KEEP** | Second extraction; best-of-batch alpha from the formulaic-alphas screen; tested |
@@ -233,7 +247,7 @@ don't exist — reasonable, since the experiment system they'd operate on doesn'
 | Futures roll methodology | — | **MISSING** | Needed before any commodity curve work; no continuous-contract/roll logic exists for the 300xxx asset block |
 | Portfolio/risk layer (general) | — | **MISSING** | Phase 7 — correctly deferred; see the narrow exception above |
 | Dashboard | `dashboard/`, `src/experiments/artifacts.py` | **KEEP** | Read-only Streamlit shell + Research section (experiment list, detail with Performance/Robustness/Diagnostics/Note/Config tabs). Markets section, Compare page, approval state not built |
-| Macro explorer | `dashboard/macro/explorer.py`, `src/macro/{data,transforms}.py`, `tests/macro/` | **KEEP** | First read-only-DuckDB page; data access and transforms kept Streamlit-free and tested. New files are still uncommitted |
+| Macro explorer | `dashboard/macro/explorer.py`, `src/macro/{data,transforms}.py`, `tests/macro/` | **KEEP** | First read-only-DuckDB page; data access and transforms kept Streamlit-free and tested. COT picker now has an asset-group filter |
 
 ---
 
@@ -252,10 +266,14 @@ don't exist — reasonable, since the experiment system they'd operate on doesn'
   cost assumption is the load-bearing one.
 - No raw/processed data separation or futures roll methodology — both prerequisites for any
   commodity curve work.
-- Macro explorer: CFTC series keyed by exchange (e.g. `…NYME`) mix contracts across dates (a
-  collector keying bug); the page hides them by default rather than fixing the collector. FRED
-  `macro_series.frequency` labels are unreliable (some weekly series tagged `daily`), so frequency is
-  inferred from dates.
+- Macro explorer: FRED `macro_series.frequency` labels are unreliable (some weekly series tagged
+  `daily`), so frequency is inferred from dates.
+- FRED series that stopped updating around 2026-02/03 in the DB (`DTB3`, `M2SL`, `PPIACO`, `CPALTT01*`,
+  others): not yet checked whether the macro collector is failing on them. `ICSA` is stored with
+  `release_date == period_date` but is actually published ~5 days later (needs a point-in-time
+  override before any regime uses it).
+- COT: leveraged-fund/asset-manager (TFF) columns were all NULL before 2026-10-22 (wrong API field
+  names); fixed and backfilled. `data/quant.db.bak-20261022` (git-ignored) is the pre-purge backup.
 - `scripts/update_commodities.py` is broken — calls `collector.fetch_single(stooq_ticker=...)` and
   reads `entry["stooq"]`, neither of which exist on the current Yahoo-Finance-based
   `CommodityCollector` (a leftover from a Stooq -> yfinance migration). `scripts/update_all.py`
@@ -268,14 +286,19 @@ don't exist — reasonable, since the experiment system they'd operate on doesn'
 
 ## 4. Suggested next steps (unordered priority, smallest-step first)
 
-1. Add `tests/collectors/` coverage for `commodity`/`equity`/`gsci` (same monkeypatch pattern as
+1. Macro regime layer (Part B of `docs/plans/cot_fix_and_macro_regimes.md`): point-in-time alignment,
+   indicators, regime classifiers wired into `Conditioner`, validation write-up, regime dashboard
+   page. Part A (the COT fix) is done.
+2. Add `tests/collectors/` coverage for `commodity`/`equity`/`gsci` (same monkeypatch pattern as
    `currency`/`macro`/`cot` — see `tests/collectors/test_cot.py` for the `_log_fetch` gotcha).
-2. Dashboard follow-ups: a Markets section (reuse the `src/macro/`-style read-only loaders), a
-   Compare page once there are >2 experiments, then an approval state and signal-agnostic
-   paper-trading engine (Phase 8) once something survives the gate.
 3. Close the open research questions in `yield_curve_regime.ipynb` (pick a signal variant via its
    existing IC analysis) before extracting it into `src/signals/`.
 4. Fix `scripts/update_commodities.py`'s stale Stooq-era calls.
+5. Re-run EXP-0002's robustness at a realistic cost (e.g. 5 bps); its breakeven is ~7 bps.
+6. Commodity curve carry (the build plan's flagship) waits on a paid futures data source
+   (Databento or Norgate); it would also bring the raw/processed data split and roll methodology.
+7. Dashboard follow-ups: a Markets section, a Compare page once there are >2 experiments, then an
+   approval state and paper trading once something survives the gate.
 
 ---
 
