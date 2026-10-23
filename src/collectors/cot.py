@@ -9,12 +9,27 @@ Four report types, one Socrata endpoint each:
   disagg_fut  — Disaggregated Futures Only
   tff_fut     — Traders in Financial Futures
 
-Each endpoint call returns rows for many CFTC market codes at once, so the
+Each endpoint call returns rows for many CFTC contracts at once, so the
 natural unit of work is a (report_type, date range) pair rather than a
 single series. Like CommodityCollector/GsciCollector, collect() is not used
 for this; fetch_report_type() does the fetch/upsert and calls _log_fetch()
 directly, using the first series touched as the audit row's representative
 series_id.
+
+Only contracts in COT_CONTRACTS are fetched. Each series is keyed by the
+6-character CFTC contract code (cftc_contract_market_code, e.g. 067651 for
+WTI), never the exchange code (cftc_market_code, e.g. NYME), which would
+collapse every contract on an exchange into one series. The contract code is
+what gets stored in the cot_positions.cftc_market_code column.
+
+release_date is report_date (Tuesday) + 3 days, i.e. the usual Friday
+publication. In holiday weeks the CFTC publishes the following Monday, so a
+signal rebalanced on Monday close still only uses published data.
+
+Adding a contract: add a COT_CONTRACTS entry, then backfill just that code
+(update mode starts from the report type's latest date, so it would miss
+the new contract's history):
+    python scripts/fetch_cot.py --mode backfill --contract <code>
 
 Usage:
     from src.db.client import db
@@ -28,6 +43,7 @@ Usage:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 import requests
@@ -45,7 +61,7 @@ ENDPOINTS: list[dict] = [
         "report_type": "legacy_fut",
         "url":         "https://publicreporting.cftc.gov/resource/6dca-aqww.json",
         "code_prefix": "CFTC.LEGACY_FUT",
-        "oi_field":    "open_interest_fut",
+        "oi_field":    "open_interest_all",
     },
     {
         "report_type": "legacy_comb",
@@ -63,7 +79,7 @@ ENDPOINTS: list[dict] = [
         "report_type": "tff_fut",
         "url":         "https://publicreporting.cftc.gov/resource/gpe5-46if.json",
         "code_prefix": "CFTC.TFF_FUT",
-        "oi_field":    "open_interest_fut",
+        "oi_field":    "open_interest_all",
     },
 ]
 
@@ -112,19 +128,21 @@ DISAGG_MAP: dict[str, str] = {
     "traders_other_rept_spread":         "dis_or_traders_spread",
 }
 
+# Field names verified against the live Socrata TFF endpoint on 2026-10-22: the API drops the
+# `_all` suffix on asset_mgr/lev_money/other_rept positions and on several trader counts.
 TFF_MAP: dict[str, str] = {
     "dealer_positions_long_all":        "tff_dealer_long",
     "dealer_positions_short_all":       "tff_dealer_short",
     "dealer_positions_spread_all":      "tff_dealer_spread",
-    "asset_mgr_positions_long_all":     "tff_am_long",
-    "asset_mgr_positions_short_all":    "tff_am_short",
-    "asset_mgr_positions_spread_all":   "tff_am_spread",
-    "lev_money_positions_long_all":     "tff_lf_long",
-    "lev_money_positions_short_all":    "tff_lf_short",
-    "lev_money_positions_spread_all":   "tff_lf_spread",
-    "other_rept_positions_long_all":    "tff_or_long",
-    "other_rept_positions_short_all":   "tff_or_short",
-    "other_rept_positions_spread_all":  "tff_or_spread",
+    "asset_mgr_positions_long":     "tff_am_long",
+    "asset_mgr_positions_short":    "tff_am_short",
+    "asset_mgr_positions_spread":   "tff_am_spread",
+    "lev_money_positions_long":     "tff_lf_long",
+    "lev_money_positions_short":    "tff_lf_short",
+    "lev_money_positions_spread":   "tff_lf_spread",
+    "other_rept_positions_long":    "tff_or_long",
+    "other_rept_positions_short":   "tff_or_short",
+    "other_rept_positions_spread":  "tff_or_spread",
     "nonrept_positions_long_all":       "tff_nr_long",
     "nonrept_positions_short_all":      "tff_nr_short",
     # Trader counts
@@ -133,13 +151,13 @@ TFF_MAP: dict[str, str] = {
     "traders_dealer_spread_all":        "tff_dealer_traders_spread",
     "traders_asset_mgr_long_all":       "tff_am_traders_long",
     "traders_asset_mgr_short_all":      "tff_am_traders_short",
-    "traders_asset_mgr_spread_all":     "tff_am_traders_spread",
+    "traders_asset_mgr_spread":     "tff_am_traders_spread",
     "traders_lev_money_long_all":       "tff_lf_traders_long",
     "traders_lev_money_short_all":      "tff_lf_traders_short",
-    "traders_lev_money_spread_all":     "tff_lf_traders_spread",
+    "traders_lev_money_spread":     "tff_lf_traders_spread",
     "traders_other_rept_long_all":      "tff_or_traders_long",
-    "traders_other_rept_short_all":     "tff_or_traders_short",
-    "traders_other_rept_spread_all":    "tff_or_traders_spread",
+    "traders_other_rept_short":     "tff_or_traders_short",
+    "traders_other_rept_spread":    "tff_or_traders_spread",
 }
 
 REPORT_TYPE_FIELD_MAP: dict[str, dict[str, str]] = {
@@ -149,21 +167,87 @@ REPORT_TYPE_FIELD_MAP: dict[str, dict[str, str]] = {
     "tff_fut":     TFF_MAP,
 }
 
-# ── Targeted commodity contracts (CFTC 6-digit market codes) ─────────────────
+# ── Contract catalog ─────────────────────────────────────────────────────────
 
-TARGET_MARKET_CODES: dict[str, str] = {
-    "067651": "Crude Oil WTI",
-    "023651": "Natural Gas",
-    "088691": "Gold",
-    "084691": "Silver",
-    "085692": "Copper",
-    "002602": "Corn",
-    "001602": "Wheat SRW",
-    "005602": "Soybeans",
-    "083731": "Coffee C",
-    "080732": "Sugar No 11",
-    "073732": "Cocoa",
-}
+COMMODITY_REPORTS: tuple[str, ...] = ("legacy_fut", "legacy_comb", "disagg_fut")
+FINANCIAL_REPORTS: tuple[str, ...] = ("legacy_fut", "legacy_comb", "tff_fut")
+
+
+@dataclass(frozen=True)
+class CotContract:
+    """One CFTC contract to collect, and the report types that cover it."""
+
+    code: str                     # cftc_contract_market_code
+    name: str
+    group: str                    # rates | equity_index | fx | vol | energy | metals | ags | softs
+    report_types: tuple[str, ...]
+
+
+# Codes confirmed against the live Socrata endpoints on 2026-10-22.
+#
+# Known history breaks (documented, deliberately not spliced):
+#   239742 E-mini Russell 2000: traded on ICE as 23977A from 2008-07 to 2018-06, so 239742 has no
+#          data for most of 2008-2017. 239777 (2008-09..12) is a short-lived ICE duplicate.
+#   134741 SOFR 3M: no history before SOFR futures launched (2018); not a continuation of Eurodollar.
+COT_CONTRACTS: dict[str, CotContract] = {c.code: c for c in [
+    # Energy
+    CotContract("067651", "Crude Oil WTI",      "energy", COMMODITY_REPORTS),
+    CotContract("023651", "Natural Gas",        "energy", COMMODITY_REPORTS),
+    CotContract("111659", "Gasoline RBOB",      "energy", COMMODITY_REPORTS),
+    CotContract("022651", "NY Harbor ULSD",     "energy", COMMODITY_REPORTS),
+    # Metals
+    CotContract("088691", "Gold",               "metals", COMMODITY_REPORTS),
+    CotContract("084691", "Silver",             "metals", COMMODITY_REPORTS),
+    CotContract("085692", "Copper",             "metals", COMMODITY_REPORTS),
+    CotContract("076651", "Platinum",           "metals", COMMODITY_REPORTS),
+    # Grains
+    CotContract("002602", "Corn",               "ags",    COMMODITY_REPORTS),
+    CotContract("001602", "Wheat SRW",          "ags",    COMMODITY_REPORTS),
+    CotContract("005602", "Soybeans",           "ags",    COMMODITY_REPORTS),
+    # Softs
+    CotContract("083731", "Coffee C",           "softs",  COMMODITY_REPORTS),
+    CotContract("080732", "Sugar No 11",        "softs",  COMMODITY_REPORTS),
+    CotContract("073732", "Cocoa",              "softs",  COMMODITY_REPORTS),
+    # Rates
+    CotContract("042601", "UST 2Y Note",        "rates",  FINANCIAL_REPORTS),
+    CotContract("044601", "UST 5Y Note",        "rates",  FINANCIAL_REPORTS),
+    CotContract("043602", "UST 10Y Note",       "rates",  FINANCIAL_REPORTS),
+    CotContract("043607", "Ultra UST 10Y",      "rates",  FINANCIAL_REPORTS),
+    CotContract("020601", "UST Bond",           "rates",  FINANCIAL_REPORTS),
+    CotContract("020604", "Ultra UST Bond",     "rates",  FINANCIAL_REPORTS),
+    CotContract("134741", "SOFR 3M",            "rates",  FINANCIAL_REPORTS),
+    CotContract("045601", "Fed Funds 30D",      "rates",  FINANCIAL_REPORTS),
+    # Equity index
+    CotContract("13874A", "E-mini S&P 500",     "equity_index", FINANCIAL_REPORTS),
+    CotContract("209742", "E-mini Nasdaq-100",  "equity_index", FINANCIAL_REPORTS),
+    CotContract("239742", "E-mini Russell 2000", "equity_index", FINANCIAL_REPORTS),
+    CotContract("124603", "Mini DJIA ($5)",     "equity_index", FINANCIAL_REPORTS),
+    # FX
+    CotContract("099741", "Euro FX",            "fx",     FINANCIAL_REPORTS),
+    CotContract("097741", "Japanese Yen",       "fx",     FINANCIAL_REPORTS),
+    CotContract("096742", "British Pound",      "fx",     FINANCIAL_REPORTS),
+    CotContract("092741", "Swiss Franc",        "fx",     FINANCIAL_REPORTS),
+    CotContract("090741", "Canadian Dollar",    "fx",     FINANCIAL_REPORTS),
+    CotContract("232741", "Australian Dollar",  "fx",     FINANCIAL_REPORTS),
+    CotContract("095741", "Mexican Peso",       "fx",     FINANCIAL_REPORTS),
+    CotContract("098662", "USD Index",          "fx",     FINANCIAL_REPORTS),
+    # Volatility
+    CotContract("1170E1", "VIX Futures",        "vol",    FINANCIAL_REPORTS),
+]}
+
+
+def catalog_codes(report_type: str, contracts: list[str] | None = None) -> list[str]:
+    """Catalog contract codes covered by report_type, optionally limited to `contracts`.
+
+    Raises:
+        KeyError: If `contracts` names a code that isn't in COT_CONTRACTS.
+    """
+    if contracts is not None:
+        unknown = [c for c in contracts if c not in COT_CONTRACTS]
+        if unknown:
+            raise KeyError(f"Not in COT_CONTRACTS: {unknown}")
+    selected = contracts if contracts is not None else list(COT_CONTRACTS)
+    return [c for c in selected if report_type in COT_CONTRACTS[c].report_types]
 
 
 class CotCollector(BaseCollector):
@@ -182,7 +266,7 @@ class CotCollector(BaseCollector):
         self,
         mode: str = "update",
         report_types: list[str] | None = None,
-        targeted: bool = False,
+        contracts: list[str] | None = None,
     ) -> dict[str, int]:
         """Fetch every catalogued report type, tolerating per-report failures.
 
@@ -191,29 +275,22 @@ class CotCollector(BaseCollector):
                           to 2 weeks ago if empty. 'incremental' — last 2 weeks.
                           'backfill' — full history.
             report_types: Subset of report types to fetch. Defaults to all four.
-            targeted:     If True, restrict to the 11 physical commodities in
-                          TARGET_MARKET_CODES (disagg_fut only).
+            contracts:    Subset of COT_CONTRACTS codes. Defaults to the whole
+                          catalog. Report types covering none of them are skipped.
 
         Returns:
             Dict mapping report_type -> rows_upserted for every report that succeeded.
         """
-        if targeted:
-            endpoints = [e for e in ENDPOINTS if e["report_type"] == "disagg_fut"]
-            market_codes = list(TARGET_MARKET_CODES.keys())
-        else:
-            endpoints = [
-                e for e in ENDPOINTS
-                if report_types is None or e["report_type"] in report_types
-            ]
-            market_codes = None
-
         results: dict[str, int] = {}
-        for endpoint in endpoints:
+        for endpoint in ENDPOINTS:
             report_type = endpoint["report_type"]
+            if report_types is not None and report_type not in report_types:
+                continue
+            market_codes = catalog_codes(report_type, contracts)
+            if not market_codes:
+                continue
             try:
-                rows = self.fetch_report_type(
-                    report_type, mode=mode, market_codes=market_codes, targeted=targeted,
-                )
+                rows = self.fetch_report_type(report_type, mode=mode, market_codes=market_codes)
                 results[report_type] = rows
                 self.logger.info(f"[{self.source}] {report_type}: upserted {rows} row(s)")
             except Exception as e:
@@ -226,14 +303,17 @@ class CotCollector(BaseCollector):
         report_type: str,
         mode: str = "update",
         market_codes: list[str] | None = None,
-        targeted: bool = False,
     ) -> int:
         """Fetch and upsert one report type's rows for the given mode/filters.
+
+        market_codes defaults to every catalog contract covered by report_type.
 
         Logs via _log_fetch() directly (see module docstring) rather than run(),
         since one call can touch many series at once.
         """
         endpoint = next(e for e in ENDPOINTS if e["report_type"] == report_type)
+        if market_codes is None:
+            market_codes = catalog_codes(report_type)
         cutoff = self._resolve_cutoff(report_type, mode)
         today = date.today().isoformat()
 
@@ -241,7 +321,7 @@ class CotCollector(BaseCollector):
         if not raw_rows:
             return 0
 
-        rows_upserted, first_series_id = self._upsert_rows(endpoint, raw_rows, report_type, targeted)
+        rows_upserted, first_series_id = self._upsert_rows(endpoint, raw_rows, report_type)
 
         first_date = raw_rows[0].get("report_date_as_yyyy_mm_dd", today)[:10]
         if first_series_id is not None:
@@ -329,7 +409,7 @@ class CotCollector(BaseCollector):
             self.logger.debug(f"[{self.source}] fetched {len(rows)} rows (since {cutoff})")
             return rows
 
-        # Backfill or targeted: paginate until the API returns fewer rows than PAGE_SIZE
+        # Catalog fetches (always filtered by market_codes) and backfills: paginate until the API returns fewer rows than PAGE_SIZE
         all_rows: list[dict] = []
         offset = 0
         while True:
@@ -345,21 +425,30 @@ class CotCollector(BaseCollector):
             offset += PAGE_SIZE
         return all_rows
 
-    def _ensure_series(self, code: str, name: str) -> int:
-        """Return series_id for the given CFTC series code, inserting if missing."""
+    def _ensure_series(self, code: str, name: str, description: str | None = None) -> int:
+        """Return series_id for the given CFTC series code, inserting if missing.
+
+        An existing series gets its name/description refreshed, so the catalog
+        stays the source of truth for display metadata.
+        """
         rows = db.query("SELECT id FROM macro_series WHERE code = ?", [code])
         if rows:
-            return int(rows[0]["id"])
+            series_id = int(rows[0]["id"])
+            db.run(
+                "UPDATE macro_series SET name = ?, description = ? WHERE id = ?",
+                [name, description, series_id],
+            )
+            return series_id
 
         next_id = int(
             db.query("SELECT COALESCE(MAX(id), 0) + 1 AS n FROM macro_series")[0]["n"]
         )
         db.run(
             """
-            INSERT INTO macro_series (id, code, name, source, frequency, units, seasonal_adj)
-            VALUES (?, ?, ?, 'CFTC', 'weekly', 'contracts', false)
+            INSERT INTO macro_series (id, code, name, source, frequency, units, seasonal_adj, description)
+            VALUES (?, ?, ?, 'CFTC', 'weekly', 'contracts', false, ?)
             """,
-            [next_id, code, name],
+            [next_id, code, name, description],
         )
         return next_id
 
@@ -392,7 +481,6 @@ class CotCollector(BaseCollector):
         endpoint: dict,
         raw_rows: list[dict],
         report_type: str,
-        targeted: bool,
     ) -> tuple[int, int | None]:
         """Parse and upsert raw CFTC rows for one report type.
 
@@ -417,20 +505,12 @@ class CotCollector(BaseCollector):
         param_rows: list[list] = []
         first_series_id: int | None = None
 
+        skipped_no_code = 0
         for row in raw_rows:
-            if targeted:
-                mkt_code = row.get("cftc_contract_market_code") or row.get("cftc_market_code", "UNKNOWN")
-            else:
-                mkt_code = row.get("cftc_market_code") or row.get("cftc_contract_market_code", "UNKNOWN")
-
-            series_code = f"{code_prefix}.{mkt_code}"
-            market_name = row.get("market_and_exchange_names", "")
-
-            if series_code not in series_cache:
-                series_cache[series_code] = self._ensure_series(series_code, market_name)
-            series_id = series_cache[series_code]
-            if first_series_id is None:
-                first_series_id = series_id
+            mkt_code = (row.get("cftc_contract_market_code") or "").strip()
+            if not mkt_code:
+                skipped_no_code += 1
+                continue
 
             report_date_str = row.get("report_date_as_yyyy_mm_dd", "")[:10]
             if not report_date_str:
@@ -439,6 +519,20 @@ class CotCollector(BaseCollector):
                 release_date_str = (date.fromisoformat(report_date_str) + timedelta(days=3)).isoformat()
             except ValueError:
                 continue
+
+            market_name = row.get("market_and_exchange_names", "")
+            series_code = f"{code_prefix}.{mkt_code}"
+            if series_code not in series_cache:
+                contract = COT_CONTRACTS.get(mkt_code)
+                if contract is not None:
+                    series_cache[series_code] = self._ensure_series(
+                        series_code, contract.name, f"COT {contract.group}",
+                    )
+                else:
+                    series_cache[series_code] = self._ensure_series(series_code, market_name)
+            series_id = series_cache[series_code]
+            if first_series_id is None:
+                first_series_id = series_id
 
             shared_vals = [
                 series_id,
@@ -454,6 +548,12 @@ class CotCollector(BaseCollector):
             ]
             type_vals = [self._parse_float(row.get(api_field)) for api_field in field_map]
             param_rows.append(shared_vals + type_vals)
+
+        if skipped_no_code:
+            self.logger.warning(
+                f"[{self.source}] {report_type}: skipped {skipped_no_code} row(s) "
+                f"with no cftc_contract_market_code"
+            )
 
         BATCH = 500
         rows_upserted = 0
