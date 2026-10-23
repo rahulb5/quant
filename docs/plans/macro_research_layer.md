@@ -1,6 +1,6 @@
 # Macro research layer — implementation plan (blended)
 
-**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0 done 2026-10-22** (see "C0 outcome"); C1 in progress.
+**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0 done 2026-10-22** (see "C0 outcome"); C1 and C2 done 2026-10-22; C3 next.
 Replaces Part B of `docs/plans/cot_fix_and_macro_regimes.md`. Part A there (the COT fix) is complete
 and is a prerequisite.
 **Inputs:** the original Part B, and `docs/Macro Research Layer — Design Review.md`. Where they
@@ -293,6 +293,27 @@ only.
 | `TOTBKCR` | Bank credit (credit supply). Large revisions, real-time from 1996 | yes | 1973 |
 
 Check each code with `get_series_info()` before adding it; aliases go in `SERIES_ALIASES`.
+
+### C2 outcome (2026-10-22)
+
+All 20 series are in `SERIES_CODES` (58 codes in total) and backfilled with full history. Findings:
+
+- **FRED caps a request at 100,000 rows and `get_series_all_releases()` silently truncates.**
+  NFCI (restated in full every release) came back as 100,000 rows covering 1971–1976, and TOTBKCR
+  stopped at 1999. `MacroCollector._fetch_all_releases()` now pages with `offset`, and
+  `_upsert_observations()` writes one bulk statement (`Database.run_df`) instead of one per row.
+  Re-fetched: NFCI 931,539 rows (801 vintages from 2011-05-25), TOTBKCR 206,251 rows to 2026-10-07.
+- **`ICNSA` joins `UNREVISED_SERIES` with a 19-day lag.** Its advance estimate is revised the next
+  week: value known 5 days after the week end differs from the latest by 1.10% of the level,
+  after 12 days 0.57%, after 19 days 0.48% (the rest is annual re-benchmarking, which stays).
+  That's small against claims' cyclical range, but it is not zero.
+- **`THREEFYTP10` is in `REVISED_DAILY`.** The Kim-Wright term premium is re-estimated: mean
+  first-vs-latest revision 0.24 pp on a spread of 0.73, and vintages only exist from 2016, so it
+  is real-time from 2016 only. It is shown beside the rates decomposition (C4), never used as a
+  regime input.
+- **Daily series with no vintages** (`DFII5`, `DFII10`, `T5YIE`, `T5YIFR`, `T10Y3M`, `DGS1`,
+  `DGS3MO`) are stored with `release_date = period_date`, as for the other market series.
+- `scripts/fetch_macro.py --series` takes a comma-separated list.
 
 ## C3. Macro state vector (`src/macro/state.py`)
 

@@ -9,6 +9,7 @@ Usage:
     python scripts/fetch_macro.py                    # all series, 30-year lookback
     python scripts/fetch_macro.py --full-history      # all series, full history
     python scripts/fetch_macro.py --series CPIAUCSL   # single series
+    python scripts/fetch_macro.py --series DFII5,DFII10 --full-history   # several (comma-separated)
     python scripts/fetch_macro.py --series CPIAUCSL --full-history
 """
 
@@ -28,12 +29,12 @@ if __name__ == "__main__":
         "--series",
         type=str,
         default=None,
-        metavar="CODE",
-        help="Fetch a single series by FRED code, e.g. --series CPIAUCSL",
+        metavar="CODE[,CODE...]",
+        help="Fetch one or more series by FRED code, e.g. --series CPIAUCSL or --series DFII5,DFII10",
     )
     args = parser.parse_args()
 
-    codes = [args.series.upper()] if args.series else SERIES_CODES
+    codes = [c.strip().upper() for c in args.series.split(",") if c.strip()] if args.series else SERIES_CODES
 
     print(
         f"Fetching {len(codes)} series  "

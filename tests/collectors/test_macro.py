@@ -10,6 +10,8 @@ filesystem access is required.
 
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 import pytest
 
@@ -106,7 +108,7 @@ def test_fetch_vintages_applies_cutoff(mem_db, collector, monkeypatch):
         "realtime_start": pd.to_datetime(["2023-01-05", "2024-01-05", "2024-02-05"]),
         "value": [1.0, 2.0, 3.0],
     })
-    monkeypatch.setattr(collector.fred, "get_series_all_releases", lambda code: raw)
+    monkeypatch.setattr(collector, "_fetch_all_releases", lambda code: raw)
 
     df = collector._fetch_vintages(series_id, cutoff="2024-01-01")
 
@@ -205,3 +207,73 @@ def test_revised_daily_series_uses_vintage_mode(mem_db, collector, monkeypatch):
 
     assert collector._is_daily(dollar) is False
     assert collector._is_daily(market) is True
+
+
+def test_series_catalogue_is_consistent():
+    from src.collectors.macro import REVISED_DAILY, SERIES_CODES
+    from src.macro.pit import RELEASE_LAG_OVERRIDES, UNREVISED_SERIES
+
+    assert len(SERIES_CODES) == len(set(SERIES_CODES))
+    assert REVISED_DAILY <= set(SERIES_CODES)
+    assert set(UNREVISED_SERIES) <= set(SERIES_CODES)
+    # ICE OAS history is archived (FRED serves 3 years); overrides must name catalogued series
+    assert set(RELEASE_LAG_OVERRIDES) - {"BAMLEMCBPIOAS"} <= set(SERIES_CODES)
+
+
+# ── Paginated vintage fetch (FRED caps a request at 100,000 rows) ─────────────
+
+class _FakeResponse:
+    def __init__(self, payload):
+        import io
+        self._buf = io.BytesIO(json.dumps(payload).encode())
+
+    def read(self, *a):
+        return self._buf.read(*a)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_fetch_all_releases_pages_until_count(collector, monkeypatch):
+    obs = [{"date": f"2024-01-0{i}", "realtime_start": "2024-02-01", "realtime_end": "9999-12-31",
+            "value": str(float(i))} for i in range(1, 6)]
+    obs.append({"date": "2024-01-06", "realtime_start": "2024-02-01", "realtime_end": "9999-12-31", "value": "."})
+    pages = {0: obs[:4], 4: obs[4:]}
+    seen = []
+
+    def fake_urlopen(url):
+        offset = int(url.split("offset=")[1].split("&")[0])
+        seen.append(offset)
+        return _FakeResponse({"count": len(obs), "observations": pages[offset]})
+
+    monkeypatch.setattr(macro_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(collector.fred, "api_key", "k")
+
+    df = collector._fetch_all_releases("NFCI")
+
+    assert seen == [0, 4]
+    assert len(df) == 6 and df["value"].isna().sum() == 1
+    assert list(df.columns) == ["date", "realtime_start", "value"]
+
+
+def test_fetch_all_releases_empty_raises(collector, monkeypatch):
+    monkeypatch.setattr(macro_module, "urlopen", lambda url: _FakeResponse({"count": 0, "observations": []}))
+    with pytest.raises(ValueError, match="No data exists"):
+        collector._fetch_all_releases("NOPE")
+
+
+def test_upsert_is_idempotent_and_dedupes(mem_db, collector, monkeypatch):
+    monkeypatch.setattr(collector.fred, "get_series_info", lambda code: _fake_series_info())
+    series_id = collector.ensure_series("BULK")
+    df = pd.DataFrame({
+        "period_date": pd.to_datetime(["2024-01-01", "2024-01-01", "2024-01-01"]),
+        "release_date": pd.to_datetime(["2024-01-05", "2024-02-05", "2024-02-05"]),   # duplicate key
+        "value": [100.0, 101.0, 102.0],
+    })
+    assert collector._upsert_observations(series_id, df) == 2
+    assert collector._upsert_observations(series_id, df) == 2
+    rows = mem_db.query("SELECT release_date, value, is_final FROM macro_observations ORDER BY release_date")
+    assert [(r["value"], r["is_final"]) for r in rows] == [(100.0, False), (102.0, True)]

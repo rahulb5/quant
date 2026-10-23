@@ -75,6 +75,19 @@ class Database:
         result = self._con.execute(sql, params or [])  # type: ignore[union-attr]
         return result.rowcount
 
+    def run_df(self, sql: str, df: Any, name: str = "df") -> int:
+        """Run one INSERT/UPDATE statement that reads a DataFrame registered as `name`.
+
+        Bulk path for large loads (one statement instead of one per row), e.g.
+        INSERT INTO t SELECT ... FROM df ON CONFLICT ... DO UPDATE ...
+        """
+        self._assert_writable()
+        self._con.register(name, df)  # type: ignore[union-attr]
+        try:
+            return self._con.execute(sql).rowcount  # type: ignore[union-attr]
+        finally:
+            self._con.unregister(name)  # type: ignore[union-attr]
+
     def transaction(self, fn: Callable[[Callable[..., None]], None]) -> None:
         """Run multiple statements in a single transaction.
 

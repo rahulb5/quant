@@ -24,8 +24,11 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import date, timedelta
+from urllib.error import HTTPError
+from urllib.request import urlopen
 
 import pandas as pd
 from fredapi import Fred
@@ -35,6 +38,10 @@ from src.db.client import db
 
 FULL_HISTORY_SENTINEL = "1900-01-01"
 
+FRED_EARLIEST_REALTIME = "1776-07-04"   # FRED's documented bounds for realtime_start/end
+FRED_LATEST_REALTIME = "9999-12-31"
+FRED_PAGE_LIMIT = 100_000               # max rows per observations request
+
 # ── Series catalogue ──────────────────────────────────────────────────────────
 
 SERIES_CODES: list[str] = [
@@ -42,6 +49,9 @@ SERIES_CODES: list[str] = [
     "DFF", "T10Y2Y", "T10YIE", "DTWEXBGS", "BAMLH0A0HYM2",
     # Treasury yield curve (daily)
     "DGS2", "DGS5", "DGS10", "DGS30",
+    "DGS1", "DGS3MO", "T10Y3M",
+    # TIPS real yields, breakevens, term premium (daily, from 2003; THREEFYTP10 from 1990)
+    "DFII5", "DFII10", "T5YIE", "T5YIFR", "THREEFYTP10",
     # Credit spreads (daily)
     "BAMLC0A0CM", "BAMLC0A4CBBB",
     # Volatility (daily)
@@ -49,11 +59,19 @@ SERIES_CODES: list[str] = [
 
     # ── Weekly ──
     "ICSA", "WM2NS",
+    "ICNSA",              # initial claims, NSA (YoY avoids seasonal revisions)
+    "CCSA",               # continuing claims
+    "NFCI",               # Chicago Fed financial conditions (real-time vintages from 2011)
+    "TOTBKCR",            # bank credit
     # Fed balance sheet (weekly)
     "WALCL",
 
     # ── Monthly ──
     "CPIAUCSL", "CPILFESL", "UNRATE", "PAYEMS", "INDPRO",
+    "CPILFENS", "CPIAUCNS",   # CPI NSA: essentially unrevised, long point-in-time history
+    "PCEPILFE",               # core PCE
+    "TEMPHELPS", "AWHAETP",   # labor: temp-help employment, average weekly hours
+    "USREC", "SAHMREALTIME",  # recession indicator (sanity check only), real-time Sahm rule
     "RETAILSMNSA", "HOUST", "PCE",
     # Additional monthly macro
     "CSUSHPINSA", "DGORDER", "JTSJOL", "RSXFS",
@@ -71,6 +89,7 @@ SERIES_CODES: list[str] = [
 
     # ── Quarterly ──
     "GDP", "GDPCTPI",
+    "DRTSCILM",           # SLOOS: net % of banks tightening C&I standards
 ]
 
 # FRED periodically retires/renames series codes (see e.g. the OECD MEI and
@@ -103,7 +122,9 @@ FREQ_MAP: dict[str, str] = {
 # Genuinely daily series that FRED does revise (stored with vintages, fetched
 # via get_series_all_releases). Every other series labelled 'daily' is a market
 # series with no revisions and is fetched without vintages.
-REVISED_DAILY: frozenset[str] = frozenset({"DTWEXBGS"})
+# THREEFYTP10 (Kim-Wright term premium) is a model estimate that is re-estimated;
+# its vintages only start in 2016.
+REVISED_DAILY: frozenset[str] = frozenset({"DTWEXBGS", "THREEFYTP10"})
 
 
 def frequency_from_fred(raw: str) -> str:
@@ -298,10 +319,41 @@ class MacroCollector(BaseCollector):
         df["release_date"] = df["period_date"]
         return df
 
+    def _fetch_all_releases(self, code: str) -> pd.DataFrame:
+        """Every (period, release) pair for a series, paged past FRED's 100,000-row cap.
+
+        Same shape as fredapi's get_series_all_releases() (columns date,
+        realtime_start, value), which does not paginate and silently truncates
+        series that FRED restates in full each release (NFCI: ~2.3M rows).
+        """
+        base = (
+            f"{self.fred.root_url}/series/observations?series_id={code}"
+            f"&realtime_start={FRED_EARLIEST_REALTIME}&realtime_end={FRED_LATEST_REALTIME}"
+            f"&file_type=json&limit={FRED_PAGE_LIMIT}&api_key={self.fred.api_key}"
+        )
+        obs: list[dict] = []
+        while True:
+            try:
+                with urlopen(f"{base}&offset={len(obs)}") as resp:
+                    payload = json.load(resp)
+            except HTTPError as exc:
+                raise ValueError(json.load(exc).get("error_message", str(exc))) from exc
+            page = payload["observations"]
+            obs.extend(page)
+            if not page or len(obs) >= int(payload["count"]):
+                break
+        if not obs:
+            raise ValueError(f"No data exists for series id: {code}")
+        df = pd.DataFrame(obs, columns=["date", "realtime_start", "value"])
+        df["value"] = pd.to_numeric(df["value"], errors="coerce")   # FRED's "." -> NaN
+        df["date"] = pd.to_datetime(df["date"])
+        df["realtime_start"] = pd.to_datetime(df["realtime_start"])
+        return df.drop_duplicates(["date", "realtime_start"], keep="last").reset_index(drop=True)
+
     def _fetch_vintages(self, series_id: int, cutoff: str | None) -> pd.DataFrame:
         """Fetch all vintage releases for a non-daily series."""
         code = self._get_code(series_id)
-        raw_df = self.fred.get_series_all_releases(code)
+        raw_df = self._fetch_all_releases(code)
         raw_df = raw_df.rename(columns={"date": "period_date", "realtime_start": "release_date"})
         raw_df = raw_df.dropna(subset=["value"])
 
@@ -323,33 +375,25 @@ class MacroCollector(BaseCollector):
         if df.empty:
             return 0
 
+        df = df[["period_date", "release_date", "value"]].copy()
+        df["period_date"] = pd.to_datetime(df["period_date"]).dt.date
+        df["release_date"] = pd.to_datetime(df["release_date"]).dt.date
+        df = df.drop_duplicates(["period_date", "release_date"], keep="last")
+        df["value"] = df["value"].astype(float)
         max_release = df.groupby("period_date")["release_date"].transform("max")
-        df = df.copy()
         df["is_final"] = df["release_date"] == max_release
+        df.insert(0, "series_id", series_id)
 
-        count = 0
-
-        def steps(q) -> None:
-            nonlocal count
-            for _, row in df.iterrows():
-                q(
-                    """
-                    INSERT INTO macro_observations
-                      (series_id, period_date, release_date, value, is_final)
-                    VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT (series_id, period_date, release_date) DO UPDATE SET
-                        value    = excluded.value,
-                        is_final = excluded.is_final
-                    """,
-                    [
-                        series_id,
-                        self._to_date_str(row["period_date"]),
-                        self._to_date_str(row["release_date"]),
-                        float(row["value"]),
-                        bool(row["is_final"]),
-                    ],
-                )
-                count += 1
-
-        db.transaction(steps)
-        return count
+        db.run_df(
+            """
+            INSERT INTO macro_observations
+              (series_id, period_date, release_date, value, is_final)
+            SELECT series_id, period_date, release_date, value, is_final FROM obs
+            ON CONFLICT (series_id, period_date, release_date) DO UPDATE SET
+                value    = excluded.value,
+                is_final = excluded.is_final
+            """,
+            df,
+            name="obs",
+        )
+        return len(df)

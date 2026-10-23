@@ -57,6 +57,8 @@ UNREVISED_SERIES: dict[str, int] = {
     "CPIAUCNS": 62,       # headline CPI, NSA
     "DRTSCILM": 60,       # SLOOS C&I tightening
     "CCSA": 12,           # continuing claims
+    "ICNSA": 19,          # initial claims NSA: advance estimate is revised the next week
+                          # (residual ~0.5% of level after 19 days, mostly annual re-benchmark)
     "SAHMREALTIME": 40,   # real-time by construction
 }
 
