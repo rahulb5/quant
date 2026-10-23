@@ -33,14 +33,14 @@ with st.sidebar:
     if source == "CFTC":
         report_type = st.selectbox("Report", sorted(rows["report_type"].unique()))
         rows = rows[rows["report_type"] == report_type]
-        if not st.checkbox(
-            "Include exchange-keyed series", value=False,
-            help="Series coded by exchange (e.g. …NYME) mix every contract on that exchange "
-                 "across dates — a collector keying bug. Hidden by default.",
-        ):
-            rows = rows[rows["contract_keyed"]]
+        rows = rows[rows["contract_keyed"]]  # safety net; the collector only writes contract-keyed series
+        groups = sorted(rows["asset_group"].dropna().unique())
+        if groups:
+            group = st.selectbox("Asset group", ["all", *groups])
+            if group != "all":
+                rows = rows[rows["asset_group"] == group]
         if rows.empty:
-            st.warning("No contract-keyed series for this report.")
+            st.warning("No series for this report.")
             st.stop()
     rows = rows.set_index("code")
     code = st.selectbox("Series", list(rows.index), format_func=lambda c: f"{c} — {rows.at[c, 'name']}")
@@ -80,11 +80,6 @@ st.caption(
     f"`{code}` · {source} · {frequency_label(raw.index)} (inferred; stored as {meta['frequency']}) · "
     f"units: {units} · {raw.index[0]:%Y-%m-%d} → {raw.index[-1]:%Y-%m-%d} · {len(raw):,} obs"
 )
-if not meta["contract_keyed"]:
-    st.warning(
-        "This series is keyed on exchange, not contract: each date holds whichever contract on "
-        "the exchange was written last, so its history is not one market's positioning."
-    )
 
 # ── Z-score lookback (bounded by the history this transform leaves) ──────────
 

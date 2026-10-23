@@ -19,6 +19,8 @@ def test_list_series_catalog(ro):
     assert bool(cat.at["CPI", "contract_keyed"])
     assert bool(cat.at["CFTC.DISAGG_FUT.067651", "contract_keyed"])
     assert not bool(cat.at["CFTC.DISAGG_FUT.NYME", "contract_keyed"])
+    assert cat.at["CFTC.DISAGG_FUT.067651", "asset_group"] == "energy"
+    assert cat["asset_group"].isna()[["CPI", "CFTC.DISAGG_FUT.NYME"]].all()
 
 
 def test_load_fred_vintages(ro):

@@ -13,10 +13,10 @@ def macro_db_path(tmp_path) -> str:
     path = str(tmp_path / "quant.db")
     db = Database(path)
     db.open()
-    db.run("""INSERT INTO macro_series (id, code, name, source, frequency, units) VALUES
-        (1, 'CPI',  'Test CPI',   'FRED', 'monthly', 'Index'),
-        (2, 'CFTC.DISAGG_FUT.067651', 'CRUDE OIL', 'CFTC', 'weekly', 'contracts'),
-        (3, 'CFTC.DISAGG_FUT.NYME',   'MIXED',     'CFTC', 'weekly', 'contracts')""")
+    db.run("""INSERT INTO macro_series (id, code, name, source, frequency, units, description) VALUES
+        (1, 'CPI',  'Test CPI',   'FRED', 'monthly', 'Index', NULL),
+        (2, 'CFTC.DISAGG_FUT.067651', 'CRUDE OIL', 'CFTC', 'weekly', 'contracts', 'COT energy'),
+        (3, 'CFTC.DISAGG_FUT.NYME',   'MIXED',     'CFTC', 'weekly', 'contracts', NULL)""")
 
     # 10 years of monthly CPI growing 0.2%/month; each period has a first
     # release and a revision one month later that is 1.0 higher.

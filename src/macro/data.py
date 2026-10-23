@@ -73,6 +73,9 @@ def list_series(db: Database) -> pd.DataFrame:
     contract_keyed — False for CFTC series whose code ends in an exchange
     code (e.g. CFTC.LEGACY_FUT.NYME) rather than a 6-character contract code.
     Those rows mix every contract on the exchange, one per report date.
+    The collector no longer writes them (and scripts/migrate_cot_contract_keys.py
+    removed the old ones), so this is a safety net. asset_group is the COT
+    catalog group (energy, rates, fx, ...) for CFTC series, else NULL.
     """
     return db.query_df("""
         WITH fred AS (
@@ -89,7 +92,9 @@ def list_series(db: Database) -> pd.DataFrame:
         SELECT ms.code, ms.name, ms.source, ms.frequency, ms.units,
                st.report_type, st.n_obs, st.first_date, st.last_date,
                ms.source <> 'CFTC'
-                 OR LENGTH(TRIM(SPLIT_PART(ms.code, '.', 3))) = 6 AS contract_keyed
+                 OR LENGTH(TRIM(SPLIT_PART(ms.code, '.', 3))) = 6 AS contract_keyed,
+               CASE WHEN ms.source = 'CFTC' AND ms.description LIKE 'COT %'
+                    THEN SUBSTR(ms.description, 5) END AS asset_group
         FROM macro_series ms JOIN stats st ON st.series_id = ms.id
         ORDER BY ms.source DESC, ms.code
     """)

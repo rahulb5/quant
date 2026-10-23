@@ -91,14 +91,16 @@ def test_macro_explorer_fred_renders(macro_db):
     assert len(at.dataframe) == 1
 
 
-def test_macro_explorer_cot_hides_exchange_keyed(macro_db):
+def test_macro_explorer_cot_lists_contract_keyed_by_group(macro_db):
     at = _run("macro/explorer.py")
     at.sidebar.radio[0].set_value("CFTC").run()
 
     assert not at.exception
-    assert at.sidebar.selectbox[1].options == ["CFTC.DISAGG_FUT.067651 — CRUDE OIL"]
-    at.sidebar.checkbox[0].check().run()
-    assert len(at.sidebar.selectbox[1].options) == 2
+    assert at.sidebar.selectbox[1].options == ["all", "energy"]  # asset group
+    assert at.sidebar.selectbox[2].options == ["CFTC.DISAGG_FUT.067651 — CRUDE OIL"]  # exchange-keyed hidden
+    at.sidebar.selectbox[1].select("energy").run()
+    assert not at.exception
+    assert len(at.sidebar.selectbox[2].options) == 1
 
 
 def test_macro_explorer_missing_db_errors_cleanly(tmp_path, monkeypatch):
