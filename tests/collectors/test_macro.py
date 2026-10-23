@@ -163,3 +163,45 @@ def test_collect_dispatches_to_daily_fetch(mem_db, collector, monkeypatch):
 def test_collect_requires_series_id(collector):
     with pytest.raises(ValueError, match="series_id is required"):
         collector.collect(from_date="2024-01-01", to_date="2024-01-31", series_id=None)
+
+
+# ── Frequency mapping / vintage mode (stamped-row bug) ────────────────────────
+
+@pytest.mark.parametrize("raw,expected", [
+    ("Daily", "daily"),
+    ("Daily, 7-Day", "daily"),
+    ("Weekly, Ending Saturday", "weekly"),
+    ("Weekly, As of Wednesday", "weekly"),
+    ("Monthly, End of Period", "monthly"),
+    ("Quarterly", "quarterly"),
+    ("Annual", "annual"),
+])
+def test_frequency_from_fred_matches_leading_word(raw, expected):
+    from src.collectors.macro import frequency_from_fred
+    assert frequency_from_fred(raw) == expected
+
+
+def test_frequency_from_fred_rejects_unknown():
+    from src.collectors.macro import frequency_from_fred
+    with pytest.raises(ValueError, match="Unrecognised FRED frequency"):
+        frequency_from_fred("Fortnightly")
+
+
+def test_weekly_series_with_qualified_frequency_uses_vintage_mode(mem_db, collector, monkeypatch):
+    monkeypatch.setattr(
+        collector.fred, "get_series_info",
+        lambda code: _fake_series_info(frequency="Weekly, Ending Saturday"),
+    )
+    series_id = collector.ensure_series("ICSA")
+
+    assert mem_db.query("SELECT frequency FROM macro_series WHERE id = ?", [series_id])[0]["frequency"] == "weekly"
+    assert collector._is_daily(series_id) is False
+
+
+def test_revised_daily_series_uses_vintage_mode(mem_db, collector, monkeypatch):
+    monkeypatch.setattr(collector.fred, "get_series_info", lambda code: _fake_series_info(frequency="Daily"))
+    dollar = collector.ensure_series("DTWEXBGS")
+    market = collector.ensure_series("DGS10")
+
+    assert collector._is_daily(dollar) is False
+    assert collector._is_daily(market) is True

@@ -1,6 +1,6 @@
 # Macro research layer — implementation plan (blended)
 
-**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). Not started.
+**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0 built 2026-10-22** (see "C0 outcome"); C1 onwards not started.
 Replaces Part B of `docs/plans/cot_fix_and_macro_regimes.md`. Part A there (the COT fix) is complete
 and is a prerequisite.
 **Inputs:** the original Part B, and `docs/Macro Research Layer — Design Review.md`. Where they
@@ -124,7 +124,10 @@ Streamlit, like `src/macro/transforms.py`. Thin loader functions in `src/macro/d
 
 ## C0. Fix FRED rows stamped on their own period date (prerequisite)
 
-**The bug.** Three weekly series are tagged `daily` in `macro_series` and contain two kinds of rows:
+**The bug.** `FREQ_MAP` matched FRED's whole frequency string, so "Weekly, Ending Saturday" (and
+"Weekly, As of Wednesday", "Monthly, End of Period") fell through to the default `daily`. That
+turned off vintage fetching for ICSA, WM2NS, WALCL and JPNASSETS. DTWEXBGS is genuinely daily but
+is revised. Each of the affected series contains two kinds of rows:
 real ALFRED vintages, and rows written by the daily-mode `_fetch_daily()`, which stamps
 `release_date = period_date` on a later, revised value. `load_fred(vintage="first")` picks the
 stamped row because it's the earliest, so "first release" returns a revised value, dated before it
@@ -141,15 +144,14 @@ published on 2024-03-07.
 
 **Fix.**
 
-1. `MacroCollector._is_daily()`: decide daily vs vintage mode from the dates themselves
-   (`transforms.periods_per_year(...) == 252` on a recent FRED sample), not from the stored
-   `frequency` label. Only genuinely daily market series (`DGS*`, `DFF`, `T10Y*`, `BAML*`,
-   `VIXCLS`) skip vintages.
+1. `frequency_from_fred()` matches FRED's leading word and raises on an unknown one (no silent
+   default). `MacroCollector._is_daily()` is true only for unrevised daily market series:
+   label `daily` and code not in `REVISED_DAILY` (`DTWEXBGS`).
 2. One-off script `scripts/purge_stamped_fred_rows.py`, built like `migrate_cot_contract_keys.py`:
-   backup first, `--dry-run`, one transaction. It deletes rows where `release_date = period_date`
-   for series that also have vintage rows, then re-runs `fetch_all(codes=[...], full_history=True)`
-   for those series.
-3. Recompute `is_final` for those series.
+   backup, then **fix labels, re-fetch in vintage mode, delete stamped rows, recompute
+   `is_final`**, with `--dry-run`. The order matters: the label selects the fetch mode, so a
+   re-fetch before the label fix writes the stamped rows again (the first rehearsal did exactly
+   that). A stamped row is deleted only where a real release exists for the same period.
 4. **Archive the ICE credit series before anything else touches the DB.** FRED now serves only the
    last 3 years of `BAMLH0A0HYM2`, `BAMLC0A0CM`, `BAMLC0A4CBBB` and `BAMLEMCBPIOAS` (ICE licensing:
    a fresh fetch of HY OAS starts 2023-10-23). Our DB holds 1996/1997–2026 for all four and it can't
@@ -165,9 +167,30 @@ published on 2024-03-07.
    `data_fetch_log`. The international CPIs and OECD CLIs are also stale. List them in
    `SERIES_ALIASES` or remove them, and don't build on them (Section 6).
 
-**Tests:** a payload with both a stamped row and vintage rows → only vintage rows kept; a weekly
-series whose `frequency` label says 'daily' → vintage mode used; the purge leaves the ICE codes
-alone.
+**Tests:** `tests/collectors/test_macro.py` (frequency mapping, qualified weekly label → vintage
+mode, `REVISED_DAILY`) and `tests/collectors/test_fred_cleanup.py` (dry run, only stamped rows with
+a real release deleted, idempotent, `load_fred(first)` returns the true first print). The purge is
+restricted to `AFFECTED`, so it never touches the ICE codes.
+
+### C0 outcome (2026-10-22)
+
+- **ICE credit spreads archived** to `data/archive/ice_credit_spreads.parquet` (git-ignored): HY OAS
+  7,770 rows from 1996-12-31, IG 7,769, BBB 7,770, EM 7,114 (from 1998-12-31).
+- **Stale series explained:** `DTB3`, `M2SL` and `PPIACO` aren't failing; they left `SERIES_CODES`
+  after their last fetch on 2026-03-26. Nothing to fix.
+- **Commodity prices refreshed** (stale since 2026-05-08); GC1, CL1 and HG1 now run to 2026-10-22.
+- **Rehearsed on a copy of the DB**, with the live FRED re-fetch: stamped rows 3,117 / 2,383 / 1,242
+  / 335 / 5,198 (ICSA / WM2NS / WALCL / JPNASSETS / DTWEXBGS) all replaced by real releases, one
+  `is_final` per period, none left over. Spot checks match the published figures: ICSA week ending
+  2020-03-21 = 3,283,000 released 2020-03-26; 2020-03-28 = 6,648,000 released 2020-04-02;
+  2024-03-02 = 217,000 released 2024-03-07.
+- **A finding for C1:** ALFRED's earliest real vintage for old ICSA weeks (1967 onward) is
+  2009-05-28, so ICSA is real-time from 2009 only. SA claims are revised about 3.8% of their level
+  each year by seasonal factors, so they aren't treated as unrevised. Use the **NSA** series
+  `ICNSA` (and a YoY, which needs no seasonal adjustment) as `UNREVISED_SERIES` with a 5-day lag;
+  verify its revisions when C2 adds it. ICSA stays as a real-time cross-check from 2009.
+- **Not yet applied to the live DB:** run `scripts/purge_stamped_fred_rows.py` (backup + re-fetch +
+  purge).
 
 ## C1. Point-in-time layer (`src/macro/pit.py`)
 
@@ -190,7 +213,8 @@ The core building block. Every later step depends on it being right.
   (code → release lag in days from the period start for monthly/quarterly series, or from the week
   end for weekly series; refine the lags from the vintage dates when building). Revision checks,
   2026-10-22: `DRTSCILM` and `SAHMREALTIME` have no revisions in their vintage era (SAHMREALTIME
-  is real-time by construction); `CCSA` revisions are about 2% of the series' spread. For these, `realtime()` uses latest values shifted by the lag over the whole history
+  is real-time by construction); `CCSA` revisions are about 2% of the series' spread. `ICNSA`
+  (NSA initial claims, lag 5 days) is added once C2 has verified its revisions. For these, `realtime()` uses latest values shifted by the lag over the whole history
   instead of reconstructing vintages. A series is added only with a measured revision check like
   the CPI one in E2.
 - `first_vintage_date(vintages)` and the `pre_vintage` policy (E2). With `"drop"`, nothing is
@@ -236,6 +260,7 @@ only.
 | `CPILFENS`, `CPIAUCNS` | Core / headline CPI, NSA: long point-in-time inflation history (E2) | unrevised | 1957 / 1913 |
 | `PCEPILFE` | Core PCE (inflation level vs the 2% target) | yes | 1959 |
 | `CCSA` | Continuing claims (`UNREVISED_SERIES`) | treated as unrevised | 1967 |
+| `ICNSA` | Initial claims, NSA: YoY of the 4-week average replaces SA `ICSA` in the growth impulse (`UNREVISED_SERIES`, lag 5 days; verify revisions) | treated as unrevised | 1967 |
 | `TEMPHELPS` | Temporary help employment. Revisions are large (about a third of its spread), so real-time from 2011 only | yes | 1990 |
 | `AWHAETP` | Average weekly hours, private | yes | 2006 |
 | `DRTSCILM` | SLOOS: net % of banks tightening C&I standards (credit supply; `UNREVISED_SERIES`) | treated as unrevised | 1990 |
@@ -253,7 +278,7 @@ before any results are seen (C8).
 
 | Dimension | Level | Impulse | Valid from (approx., with E2 = drop) |
 |---|---|---|---|
-| **Growth** `G` | z-mean of: IP YoY, payrolls YoY, −(UNRATE − its expanding median) | z-mean of 6-month changes in: IP YoY, 3m-annualised payrolls, −(4-week-average claims YoY) | ~1960s (payrolls 1955, UNRATE 1960, ICSA after C0) |
+| **Growth** `G` | z-mean of: IP YoY, payrolls YoY, −(UNRATE − its expanding median) | z-mean of 6-month changes in: IP YoY, 3m-annualised payrolls, −(4-week-average NSA claims YoY, `ICNSA`) | ~1967 (claims; payrolls 1955, UNRATE 1960) |
 | **Inflation** `π` | core CPI **NSA** YoY − 2 (core PCE YoY − 2 as a cross-check) | 6-month change in core NSA YoY (full history); plus, as supplements, the 6-month change in SA 3m-annualised core CPI (from 1996) and Δ`T10YIE` (from 2003) | Core 1958, headline 1914 (via `UNREVISED_SERIES`) |
 | **Labor** `L` (for the composite and the flag) | UNRATE − its expanding median (not CBO `NROU`: its revisions are larger than its own variation, and it contains projections to 2036) | z-mean of: 3-month Δ UNRATE, claims and continuing claims YoY, temp help 6m % (from 2011), hours 6m Δ (from 2010) | ~1967 (fewer components before 2011) |
 | **Policy** `P` | Stance = DFF − core CPI NSA YoY (real policy rate), minus its expanding median | Impulse = 6-month Δ DFF | Stance 1958 (DFF 1954, core NSA YoY 1958) |

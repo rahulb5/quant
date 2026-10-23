@@ -5,8 +5,11 @@ Macroeconomic data collector using the FRED API.
 
 Fetches all vintage releases for non-daily series (so revision history is
 preserved — see macro_observations.is_final) and a plain observation series
-for daily series, which have no meaningful revisions and would otherwise hit
-FRED's 2000-vintage limit via get_series_all_releases().
+for daily market series, which have no meaningful revisions and would
+otherwise hit FRED's 2000-vintage limit via get_series_all_releases().
+"Daily" is decided from the stored frequency label, which comes from
+frequency_from_fred() (matches FRED's leading word, so "Weekly, Ending
+Saturday" is weekly), minus REVISED_DAILY (daily series that FRED revises).
 
 Usage:
     from src.db.client import db
@@ -82,7 +85,11 @@ SERIES_ALIASES: dict[str, list[str]] = {
     "CP0000EZ19M086NEST": ["CPALTT01EZM659N"],
 }
 
-# Maps FRED's free-text frequency to our schema's allowed values
+# Maps the first comma-separated word of FRED's free-text frequency to our
+# schema's allowed values. FRED often appends a qualifier ("Weekly, Ending
+# Saturday", "Monthly, End of Period"), so match on the word, never the whole
+# string: an unmatched string used to fall through to 'daily', which silently
+# skipped vintage fetching for ICSA, WM2NS, WALCL and JPNASSETS.
 FREQ_MAP: dict[str, str] = {
     "Daily":      "daily",
     "Weekly":     "weekly",
@@ -92,6 +99,23 @@ FREQ_MAP: dict[str, str] = {
     "Semiannual": "annual",
     "Annual":     "annual",
 }
+
+# Genuinely daily series that FRED does revise (stored with vintages, fetched
+# via get_series_all_releases). Every other series labelled 'daily' is a market
+# series with no revisions and is fetched without vintages.
+REVISED_DAILY: frozenset[str] = frozenset({"DTWEXBGS"})
+
+
+def frequency_from_fred(raw: str) -> str:
+    """Map FRED's frequency string to our schema value, e.g. 'Weekly, Ending Saturday' -> 'weekly'.
+
+    Raises:
+        ValueError: the leading word is not in FREQ_MAP.
+    """
+    key = raw.split(",")[0].strip()
+    if key not in FREQ_MAP:
+        raise ValueError(f"Unrecognised FRED frequency {raw!r}; add its leading word to FREQ_MAP")
+    return FREQ_MAP[key]
 
 
 class MacroCollector(BaseCollector):
@@ -146,8 +170,7 @@ class MacroCollector(BaseCollector):
                 f"falling back to alias {resolved_code}"
             )
 
-        frequency_raw = str(info.get("frequency", "Daily"))
-        frequency = FREQ_MAP.get(frequency_raw, "daily")
+        frequency = frequency_from_fred(str(info.get("frequency", "Daily")))
 
         seasonal_short = str(info.get("seasonal_adjustment_short", "NSA"))
         seasonal_adj = seasonal_short in ("SA", "SAAR", "SAAQ")
@@ -255,8 +278,9 @@ class MacroCollector(BaseCollector):
         return str(rows[0]["code"])
 
     def _is_daily(self, series_id: int) -> bool:
-        rows = db.query("SELECT frequency FROM macro_series WHERE id = ?", [series_id])
-        return bool(rows) and rows[0]["frequency"] == "daily"
+        """True for unrevised daily market series (fetched without vintages)."""
+        rows = db.query("SELECT code, frequency FROM macro_series WHERE id = ?", [series_id])
+        return bool(rows) and rows[0]["frequency"] == "daily" and rows[0]["code"] not in REVISED_DAILY
 
     def _fetch_daily(self, series_id: int, cutoff: str | None) -> pd.DataFrame:
         """Fetch a daily series without vintage data.

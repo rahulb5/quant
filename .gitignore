@@ -40,3 +40,7 @@ logs/
 
 # Pre-migration DB backups
 data/quant.db.bak-*
+
+# Irreplaceable data exports
+data/archive/
+*.parquet.bak
