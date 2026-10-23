@@ -1,6 +1,6 @@
 # COT collector fix + macro regime layer — implementation plan
 
-**Status:** approved by the researcher on 2026-10-22 (decisions below). Part A complete (A1–A5 done, A6 docs updated); Part B not started. See "Part A outcome" below.
+**Status:** approved by the researcher on 2026-10-22 (decisions below). Part A complete (A1–A5 done, A6 docs updated); Part B not started and **superseded (proposed) by `docs/plans/macro_research_layer.md`**. See "Part A outcome" below.
 **Read first:** `CLAUDE.md` (Python env + DB conventions), `docs/architecture.md` (repo map),
 `docs/plans/dashboard_v1.md` (dashboard conventions), `quant_research_os_build_plan.md` Sections 1.2
 (research first) and 6 (research data integrity).
@@ -181,6 +181,9 @@ and note the catalog. Update the `cot-exchange-keying-bug` memory to say it's re
 ---
 
 ## Part B — macro regime layer
+
+> **Superseded (proposed 2026-10-22):** see `docs/plans/macro_research_layer.md`, which blends this
+> Part B with `docs/Macro Research Layer — Design Review.md`. Kept here for reference.
 
 ### Design
 

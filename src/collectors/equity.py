@@ -36,6 +36,7 @@ import pandas as pd
 import yfinance as yf
 
 from src.collectors.base import BaseCollector
+from src.db.asset_ids import next_asset_id
 from src.db.client import db
 
 
@@ -80,7 +81,7 @@ class EquityCollector(BaseCollector):
         if rows:
             return int(rows[0]["id"])
 
-        next_id = self._next_asset_id()
+        next_id = next_asset_id(db, "equity")
         db.run(
             """
             INSERT INTO assets (id, ticker, name, asset_class, currency)
@@ -385,11 +386,6 @@ class EquityCollector(BaseCollector):
 
         db.transaction(steps)
         return inserted
-
-    def _next_asset_id(self) -> int:
-        """Return the next available id for the assets table."""
-        rows = db.query("SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM assets")
-        return int(rows[0]["next_id"])
 
     def _get_last_price_date(self, asset_id: int) -> str:
         """Return the most recent price date for asset_id at the '1d' interval.

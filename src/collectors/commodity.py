@@ -26,9 +26,8 @@ import pandas as pd
 import yfinance as yf
 
 from src.collectors.base import BaseCollector
+from src.db.asset_ids import next_asset_id
 from src.db.client import db
-
-_ID_BLOCK_START = 300_001
 
 # ── Ticker catalogue ──────────────────────────────────────────────────────────
 
@@ -69,7 +68,7 @@ class CommodityCollector(BaseCollector):
         if rows:
             return int(rows[0]["id"])
 
-        next_id = self._next_commodity_id()
+        next_id = next_asset_id(db, "futures")
         db.run(
             """
             INSERT INTO assets (id, ticker, name, asset_class, currency)
@@ -202,11 +201,3 @@ class CommodityCollector(BaseCollector):
 
         db.transaction(steps)
         return inserted
-
-    def _next_commodity_id(self) -> int:
-        """Return the next available id in the 300xxx block."""
-        rows = db.query(
-            "SELECT COALESCE(MAX(id), ?) AS max_id FROM assets WHERE id >= ? AND id < ?",
-            [_ID_BLOCK_START - 1, _ID_BLOCK_START, 400_000],
-        )
-        return int(rows[0]["max_id"]) + 1
