@@ -241,7 +241,7 @@ class FinancialConditionsRegime(MacroRegime):
 
 
 class CurveDynamicsRegime(MacroRegime):
-    """bull/bear x steepener/flattener from the 63-day changes in DGS10 and T10Y2Y."""
+    """bull/bear x steepener/flattener from the 126-day (6-month) changes in DGS10 and T10Y2Y."""
     layer = "market"
     name = "curve_dynamics"
     columns = ("curve_state",)

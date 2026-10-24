@@ -5,6 +5,7 @@
 **Code checked:** `06cdedc` (state), `2984b5b` (rates), `d2fcc8a` + `e452b2b` (market, dollar), `81dfaab` (regimes, flags), `ad25a59` (ledger).
 **Data as of:** 2026-10-23. Every number below comes from `scripts/macro_state_validation.py`.
 **No asset returns were used** (plan step C8.1). Everything is compared with NBER recessions (`USREC`), known episodes, other vintages of the same data, and the state's own history.
+**Change window (2026-10-24):** every market-style change in the macro layer now uses 126 business days (6 months), not 63. This affects `curve_dynamics`, `FC_impulse`, the rates decomposition and the market pricing variables. Numbers below are on the 126-day window; the one that changed materially is `curve_dynamics` (1,282 episodes before, 816 now).
 **File name:** the plan called this `macro_state_v1.md`; the repo's guard treats any `docs/research/*_v<N>.md` as a frozen definitions file, so it is named `macro_state_validation.md`. Figures are in `docs/research/macro_state_v1/`.
 
 ## 1. Verdict in one table
@@ -135,7 +136,7 @@ I rebuilt the whole state using every period's *latest* value, available on its 
 | `L_level` | 0.998 | 0.067 | 0.45 |
 | `L_impulse` | 0.987 | 0.090 | 0.54 |
 | `pi_level`, `pi_impulse`, `P_stance`, `P_impulse` | 1.000 | 0.000 | 0.000 |
-| `FC`, `FC_impulse` | 1.000, 0.999 | 0.008, 0.012 | 0.20, 0.19 |
+| `FC`, `FC_impulse` | 1.000, 1.000 | 0.008, 0.012 | 0.20, 0.21 |
 | `CS`, `CS_impulse` | 0.979, 0.942 | 0.106, 0.126 | 0.90, 0.84 |
 
 | Regime | Label differs on (all days) | Since 1996 |
@@ -184,19 +185,19 @@ Cramér's V between regime labels, on days where both exist (at least 5,008 days
 
 | | gr_inf | gr_lvl | policy | fin_cond | curve | dollar | vol | rates_curve | eq_trend |
 |---|---|---|---|---|---|---|---|---|---|
-| growth_inflation | 1.00 | 0.24 | 0.16 | 0.39 | 0.21 | 0.24 | 0.17 | 0.20 | 0.22 |
-| growth_level | 0.24 | 1.00 | **0.54** | 0.24 | 0.20 | 0.08 | 0.09 | 0.13 | 0.08 |
-| policy | 0.16 | 0.54 | 1.00 | 0.25 | 0.21 | 0.15 | 0.22 | **0.45** | 0.06 |
-| financial_conditions | 0.39 | 0.24 | 0.25 | 1.00 | 0.22 | 0.12 | 0.37 | 0.35 | **0.43** |
-| curve_dynamics | 0.21 | 0.20 | 0.21 | 0.22 | 1.00 | 0.15 | 0.11 | 0.17 | 0.12 |
-| dollar_trend | 0.24 | 0.08 | 0.15 | 0.12 | 0.15 | 1.00 | 0.10 | 0.01 | 0.20 |
-| volatility | 0.17 | 0.09 | 0.22 | 0.37 | 0.11 | 0.10 | 1.00 | 0.03 | **0.49** |
-| rates_curve | 0.20 | 0.13 | 0.45 | 0.35 | 0.17 | 0.01 | 0.03 | 1.00 | 0.02 |
-| equity_trend | 0.22 | 0.08 | 0.06 | 0.43 | 0.12 | 0.20 | 0.49 | 0.02 | 1.00 |
+| growth_inflation | 1.00 | 0.24 | 0.16 | 0.39 | 0.26 | 0.24 | 0.17 | 0.20 | 0.22 |
+| growth_level | 0.24 | 1.00 | **0.54** | 0.24 | 0.28 | 0.08 | 0.09 | 0.13 | 0.08 |
+| policy | 0.16 | 0.54 | 1.00 | 0.25 | 0.31 | 0.15 | 0.22 | **0.45** | 0.06 |
+| financial_conditions | 0.39 | 0.24 | 0.25 | 1.00 | 0.21 | 0.12 | 0.37 | 0.35 | **0.43** |
+| curve_dynamics | 0.26 | 0.28 | 0.31 | 0.21 | 1.00 | 0.20 | 0.15 | 0.26 | 0.21 |
+| dollar_trend | 0.24 | 0.08 | 0.15 | 0.12 | 0.20 | 1.00 | 0.10 | 0.01 | 0.20 |
+| volatility | 0.17 | 0.09 | 0.22 | 0.37 | 0.15 | 0.10 | 1.00 | 0.03 | **0.49** |
+| rates_curve | 0.20 | 0.13 | 0.45 | 0.35 | 0.26 | 0.01 | 0.03 | 1.00 | 0.02 |
+| equity_trend | 0.22 | 0.08 | 0.06 | 0.43 | 0.21 | 0.20 | 0.49 | 0.02 | 1.00 |
 
 - **No pair is a near-duplicate** (highest 0.54, `policy` and `growth_level`; both follow the long cycles of the 1960s–80s). So nothing needs dropping on overlap grounds.
-- **`RatesRegime` (`rates_curve`) and `curve_dynamics` both stay:** V = 0.17. One is the level of the curve, the other the direction of change.
-- **State vector correlations above 0.6 in absolute value:** `G_level` with `L_level` (-0.80) and `G_impulse` with `L_impulse` (-0.74). They share unemployment and claims, so the labor variables add little over growth. They stay because the spec keeps them for the `labor_deteriorating` flag, but they shouldn't be used as independent regressors next to `G`.
+- **`RatesRegime` (`rates_curve`) and `curve_dynamics` both stay:** V = 0.26. One is the level of the curve, the other the direction of change.
+- **State vector correlations above 0.6 in absolute value:** `G_level` with `L_level` (-0.80) and `G_impulse` with `L_impulse` (-0.73). They share unemployment and claims, so the labor variables add little over growth. They stay because the spec keeps them for the `labor_deteriorating` flag, but they shouldn't be used as independent regressors next to `G`.
 
 ## 7. Episodes: how many independent observations are behind each label
 
@@ -208,12 +209,12 @@ An episode is a maximal run of one label. Labels with fewer than 5 episodes woul
 | `growth_level` | 1960-04 | 21 | 780 | 827 |
 | `policy` | 1963-02 | 862 | **3.5** | 19 |
 | `financial_conditions` | 2002-10 | 388 | **3.5** | 16 |
-| `curve_dynamics` | 1976-08 | 1,282 | **3.0** | 10 |
+| `curve_dynamics` | 1976-11 | 816 | **3.0** | 16 |
 | `dollar_trend` | 2006-10 | 108 | 10 | 48 |
 
 (`growth_inflation` and `growth_level` are shown with their `min_duration` rule applied, which is how experiments see them. The existing `volatility` and `equity_trend` regimes are similar in kind: 870 and 373 episodes, medians of 3 and 4 days on the raw label counts.)
 
-`growth_inflation`'s 21-day rule works: without it there'd be 259 episodes with a median of 40 days. The other regimes have no such rule and flip every few days. Counted as raw runs they look like hundreds of independent episodes; they aren't. A label that flips every 3 days around a threshold is noise sampling, and each regime statistic would carry a false sense of precision.
+`growth_inflation`'s 21-day rule works: without it there'd be 259 episodes with a median of 40 days. The other regimes have no such rule and flip every few days. For `curve_dynamics` the 6-month change window cut the episodes from 1,282 to 816 and raised the mean run from 10 to 16 days, but the median is still 3: a longer window doesn't stop the sign of a change flipping around zero day to day. Counted as raw runs they look like hundreds of independent episodes; they aren't. A label that flips every 3 days around a threshold is noise sampling, and each regime statistic would carry a false sense of precision.
 
 What the existing `min_duration` rule does if applied elsewhere (label stability only; each rule delays a regime change by that many days):
 
@@ -225,9 +226,9 @@ What the existing `min_duration` rule does if applied elsewhere (label stability
 | `financial_conditions` | 1 (current) | 388 | 3.5 | 3/3 |
 | | 21 | 33 | 123 | 3/3 |
 | | 63 | 15 | 355 | **1/3** |
-| `curve_dynamics` | 1 (current) | 1,282 | 3.0 | 4/4 |
-| | 21 | 125 | 83 | 4/4 |
-| | 63 | 38 | 263 | 4/4 |
+| `curve_dynamics` | 1 (current) | 816 | 3.0 | 4/4 |
+| | 21 | 94 | 110 | 4/4 |
+| | 63 | 46 | 266 | 4/4 |
 | `dollar_trend` | 1 (current) | 108 | 10 | 2/2 |
 | | 21 | 26 | 182 | 2/2 |
 | | 63 | 13 | 338 | 2/2 |
@@ -240,7 +241,7 @@ Spec section 7 allows a definition to change when C8 shows it's wrong, with a wr
 
 | # | Finding | Proposal | Effect |
 |---|---|---|---|
-| **D1** | Four regimes flip every 2–10 days (§7) | Apply `min_duration = 21` to `policy`, `financial_conditions`, `curve_dynamics` and `dollar_trend` (the J9 alternative: "apply to every regime"). Leave `growth_level` (already stable) | Episodes fall from 862 / 388 / 1,282 / 108 to 62 / 33 / 125 / 26; every change is confirmed 21 days late. New `family_version` v2 |
+| **D1** | Four regimes flip every 2–10 days (§7) | Apply `min_duration = 21` to `policy`, `financial_conditions`, `curve_dynamics` and `dollar_trend` (the J9 alternative: "apply to every regime"). Leave `growth_level` (already stable) | Episodes fall from 862 / 388 / 816 / 108 to 62 / 33 / 94 / 26; every change is confirmed 21 days late. New `family_version` v2 |
 | **D2** | Continuing claims aren't unrevised (§5.2) | **Decided and applied 2026-10-24:** same treatment as the dollar (real-time vintages from 2009-09, back-filled latest values with a 19-day lag before; `L_impulse` flagged approximate before then) | `L_impulse` correlation 1.000 with the old build; `labor_deteriorating` flag differs on 0.4% of days; regimes identical. Full 1968 history kept |
 | **D3** | SLOOS history was restated in 2019 (§5.2) | Keep, and label `CS` as approximate for its expanding baseline before 2019 | No code change; one line in the spec's change log |
 | **D4** | `policy` stance is "accommodative" through 2009–2022 (§4) | No change. Report `policy` results pre- and post-2008 separately, and don't read `restrictive_*` after 2008 | None |

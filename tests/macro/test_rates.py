@@ -57,11 +57,13 @@ def test_missing_series_give_nan_not_error():
     assert rates.treasury_proxy_returns({}, IDX).isna().all()
 
 
-def test_changes_are_causal_63_day_differences():
+def test_changes_are_causal_6_month_differences():
+    n = rates.CHANGE_WINDOW
+    assert n == 126
     inp = _inputs()
     d = rates.nominal_decomposition(inp, IDX)
-    assert d["d_real"].iloc[100] == pytest.approx(inp["DFII10"].iloc[100] - inp["DFII10"].iloc[37])
-    assert d["d_real"].iloc[:63].isna().all()
+    assert d["d_real"].iloc[200] == pytest.approx(inp["DFII10"].iloc[200] - inp["DFII10"].iloc[200 - n])
+    assert d["d_real"].iloc[:n].isna().all() and d["d_real"].iloc[n:].notna().all()
 
 
 def test_truncation_invariance():
@@ -76,7 +78,7 @@ def test_curve_state_labels():
     y10 = _s(np.r_[np.linspace(4, 3, 200), np.linspace(3, 5, len(IDX) - 200)])
     spread = _s(np.r_[np.linspace(1, 2, 200), np.linspace(2, 0, len(IDX) - 200)])
     c = rates.curve({"DGS10": y10, "T10Y2Y": spread}, IDX)
-    assert c["curve_state"].iloc[:63].isna().all()
+    assert c["curve_state"].iloc[:rates.CHANGE_WINDOW].isna().all()
     assert c["curve_state"].iloc[150] == "bull_steepener"
     assert c["curve_state"].iloc[-1] == "bear_flattener"
 

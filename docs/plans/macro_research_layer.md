@@ -365,7 +365,7 @@ A first-class module, not part of "curve dynamics".
 `src/macro/inputs.py` (13 daily FRED codes); 10 tests. Definitions follow spec section 2 unchanged.
 Notes: `THREEFYTP10` is vintaged from 2016-05 only, so under E2 "drop" the term premium starts
 there (`latest_lagged` for exploration). 10Y decomposition residual max 2 bp (rounding). Live values on
-2026-10-23: 10Y 4.96 = real 2.64 + BE 2.34 (3m move +35 bp, two-thirds real), curve `bear_flattener`,
+2026-10-23: 10Y 4.96 = real 2.64 + BE 2.34 (3-month move +35 bp, two-thirds real; measured at the original 63-day window, which later became 126 days), curve `bear_flattener`,
 T10Y2Y +0.31, DGS2-DFF +0.77.
 
 ## C5. Market state and positioning (`src/macro/market.py`)
@@ -439,7 +439,7 @@ pass); the six regimes run through the real `Conditioner.by_regime()`. The exist
 | `growth_level` | 1960-04 | 25 | above_trend |
 | `policy` | 1963-02 | 862 | restrictive_easing |
 | `financial_conditions` | 2002-10 | 388 | normal |
-| `curve_dynamics` | 1976-08 | 1,282 | bear_flattener |
+| `curve_dynamics` | 1976-11 | 816 (1,282 at the original 63-day window) | bear_flattener |
 | `dollar_trend` | 2006-10 (approximate before 2019-02) | 108 | strong_usd |
 
 For C8: `policy` and `curve_dynamics` flip often (a sign flip of `P_stance` or a 63-day change near zero),
@@ -505,6 +505,12 @@ track recessions and stress episodes; real-time vs latest-vintage labels differ 
 SLOOS was restated in 2019-11, policy stance reads "accommodative" through 2009-2022 (negative real rates), and
 fixed release lags were exceeded in 2025 (shutdown). **Checkpoint: researcher reads it and decides D1 before
 C7 and C9.**
+
+**Change window (2026-10-24, researcher decision).** Every 63-business-day change in the macro layer (`FC_impulse`, the rates
+module, the market pricing variables, the curve state) became 126 business days via `state.CHANGE_WINDOW`: J4 said
+"6 months (63 business days)", which contradicted itself. `curve_dynamics` episodes 1,282 -> 816 (median run still 3 days);
+no other regime changed. Logged in the spec's change log; it needs `macro_state_definitions_v2.md` (researcher) and ledger
+`family_version` v2. Live-value notes in the C4 and C5 outcomes above were measured at 63 days.
 
 ## C9. Experiment integration
 

@@ -5,8 +5,8 @@ Rates decomposition (C4). Pure pandas, no DB access: it takes the release-dated
 daily series built by src.macro.inputs.load_rates_inputs. Definitions are frozen
 in docs/research/macro_state_definitions_v1.md section 2.
 
-All series are forward-filled onto a business-day grid; "3-month" changes are
-D63 = 63 business days. Yields are in percent, so 10 bp = 0.10.
+All series are forward-filled onto a business-day grid; changes are over
+CHANGE_WINDOW = 126 business days (~6 months). Yields are in percent, so 10 bp = 0.10.
 
 Usage:
     inputs = load_rates_inputs(ro)
@@ -22,7 +22,7 @@ import pandas as pd
 
 from src.macro.pit import to_daily
 
-D63 = 63
+CHANGE_WINDOW = 126
 ATTRIBUTION_MIN_MOVE = 0.10     # percent: shares only reported when |d_nominal| exceeds this
 PROXY_DURATION = 8.5            # constant modified duration of the Treasury proxy, years
 PROXY_DAYS = 252
@@ -40,7 +40,7 @@ def _daily(inputs: dict[str, pd.Series], code: str, index: pd.DatetimeIndex) -> 
 
 
 def nominal_decomposition(
-    inputs: dict[str, pd.Series], index: pd.DatetimeIndex, tenor: int = 10, window: int = D63,
+    inputs: dict[str, pd.Series], index: pd.DatetimeIndex, tenor: int = 10, window: int = CHANGE_WINDOW,
 ) -> pd.DataFrame:
     """nominal = real + breakeven, with `window`-day changes attributed to each part.
 
@@ -64,7 +64,7 @@ def nominal_decomposition(
     return out
 
 
-def term_premium(inputs: dict[str, pd.Series], index: pd.DatetimeIndex, window: int = D63) -> pd.DataFrame:
+def term_premium(inputs: dict[str, pd.Series], index: pd.DatetimeIndex, window: int = CHANGE_WINDOW) -> pd.DataFrame:
     """THREEFYTP10 level and change. A model estimate (real-time from 2016 only; earlier
     values are revised history, so under the default pre_vintage="drop" the loader
     returns it from 2016 only; use "latest_lagged" for exploration). Shown beside the decomposition, never added to it:
@@ -73,8 +73,8 @@ def term_premium(inputs: dict[str, pd.Series], index: pd.DatetimeIndex, window: 
     return pd.DataFrame({"term_premium": tp, "d_term_premium": tp - tp.shift(window)})
 
 
-def curve(inputs: dict[str, pd.Series], index: pd.DatetimeIndex, window: int = D63) -> pd.DataFrame:
-    """Curve levels, 3-month changes and the bull/bear steepener/flattener state.
+def curve(inputs: dict[str, pd.Series], index: pd.DatetimeIndex, window: int = CHANGE_WINDOW) -> pd.DataFrame:
+    """Curve levels, 6-month changes and the bull/bear steepener/flattener state.
 
     bull/bear = d_DGS10 < 0 / >= 0; steepener/flattener = d_T10Y2Y >= 0 / < 0.
     State is NaN where either change is unavailable. T10Y2Y from 1976, T10Y3M from 1982.
@@ -93,7 +93,7 @@ def curve(inputs: dict[str, pd.Series], index: pd.DatetimeIndex, window: int = D
     return out
 
 
-def policy_expectations(inputs: dict[str, pd.Series], index: pd.DatetimeIndex, window: int = D63) -> pd.DataFrame:
+def policy_expectations(inputs: dict[str, pd.Series], index: pd.DatetimeIndex, window: int = CHANGE_WINDOW) -> pd.DataFrame:
     """DGS2 - DFF and DGS1 - DFF: a free proxy for OIS-implied policy over 1-2 years.
     It includes term premium, so it is a proxy, not an expectation. From 1976."""
     dff = _daily(inputs, "DFF", index)

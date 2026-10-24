@@ -30,8 +30,11 @@ from src.macro.pit import staleness, to_daily
 BURN_IN: dict[str, int] = {"monthly": 60, "weekly": 156, "daily": 756, "quarterly": 20}
 Z_CLIP = 3.0
 
-# Business-day windows for market-style changes.
-D126, D63 = 126, 63
+# Business-day windows. CHANGE_WINDOW is the one lookback for every market-style change in the
+# macro layer (FC_impulse here, curve / decomposition changes in rates.py, credit and pricing
+# changes in market.py): 6 months, matching the 6-month impulses of the macro series (J4).
+D126 = 126
+CHANGE_WINDOW = D126
 
 # (input name, frequency, sign). Positive sign = more of what the composite is named for.
 GROWTH_LEVEL = [("ip_yoy", "monthly", +1), ("pay_yoy", "monthly", +1), ("unr_gap", "monthly", -1)]
@@ -117,7 +120,7 @@ def macro_state(inputs: dict[str, pd.Series], index: pd.DatetimeIndex) -> pd.Dat
     out["G_impulse"], out["G_impulse_n"] = g_imp["value"], g_imp["n"]
     out["L_impulse"], out["L_impulse_n"] = l_imp["value"], l_imp["n"]
     out["FC"], out["FC_n"] = fc["value"], fc["n"]
-    out["FC_impulse"] = fc["value"] - fc["value"].shift(D63)
+    out["FC_impulse"] = fc["value"] - fc["value"].shift(CHANGE_WINDOW)
     out["CS"], out["CS_n"] = cs["value"], cs["n"]
     out["CS_impulse"] = cs["value"] - cs["value"].shift(D126)
 

@@ -241,3 +241,17 @@ test in C8 (revised about 2% in level, still 56 days after the period), so it is
 back-filled latest values available 19 days after each period before that. `L_impulse` is approximate before 2009-09-10
 (`macro_state().attrs["approximate_before"]`). Effect: `L_impulse` correlation 1.000 with the previous build, mean abs.
 difference 0.006; `labor_deteriorating` differs on 0.4% of days; every macro regime label is unchanged.
+
+### Change after the C8 validation: market-style change window 63 -> 126 business days (2026-10-24)
+
+**Researcher decision. This changes definitions, so it needs a new `family_version` (v2) and the definitions table above, which is
+frozen, is not edited; the researcher creates `macro_state_definitions_v2.md`.** Reason: J4 says "6 months (63 business days for market
+series)", but 63 business days is about 3 months, so the spec contradicted itself; the macro impulses (`G_impulse`, `pi_impulse`,
+`P_impulse`, `CS_impulse`) are 6-month changes, and the market series they are compared with in the pricing divergence (section 5)
+should use the same horizon. Every 63-business-day change is now 126 (`state.CHANGE_WINDOW`, also used by `rates.py` and `market.py`):
+`FC_impulse`; `T10Y2Y` and `DGS10` changes in the curve state; the nominal / real / breakeven attribution changes; the term
+premium and policy-expectation changes; the HY OAS change; and the growth, inflation and policy pricing changes. Not changed:
+the 3-month average in the Sahm rule, `unr_d3` (a stated 3-month change in `UNRATE`) and the 200-day dollar mean.
+Effect (label stability only; no returns were used): `curve_dynamics` episodes 1,282 -> 816, mean run 10 -> 16 business days,
+median unchanged at 3; valid from 1976-11-24 (was 1976-08-27); no other regime label changed. Series valid-from dates move out
+by about 63 business days for the changed variables.
