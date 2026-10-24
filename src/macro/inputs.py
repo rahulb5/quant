@@ -105,6 +105,28 @@ SPECS: dict[str, tuple[str, Fn, bool]] = {
 }
 
 
+RATES_CODES = [
+    "DGS10", "DFII10", "T10YIE", "DGS5", "DFII5", "T5YIE", "T5YIFR", "THREEFYTP10",
+    "T10Y2Y", "T10Y3M", "DGS2", "DGS1", "DFF",
+]
+
+
+def load_rates_inputs(db: Database, pre_vintage: PreVintage = "drop") -> dict[str, pd.Series]:
+    """Daily release-dated levels for src.macro.rates, keyed by FRED code.
+
+    Codes with no data in the DB are omitted (rates functions return NaN columns).
+    """
+    out: dict[str, pd.Series] = {}
+    for code in RATES_CODES:
+        v = load_vintages(db, code)
+        if v.empty:
+            continue
+        s = pit_series(v, level, code, pre_vintage=pre_vintage, daily=True)
+        if not s.empty:
+            out[code] = s
+    return out
+
+
 def load_state_inputs(
     db: Database,
     names: list[str] | None = None,

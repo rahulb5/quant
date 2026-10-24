@@ -360,6 +360,14 @@ A first-class module, not part of "curve dynamics".
   measures expected policy over the next 1–2 years, with term premium mixed in. Label it as a proxy.
 - `treasury_proxy_returns()`: the constant-duration proxy from the original B6 (D4), moved here.
 
+**C4 outcome (2026-10-24).** Built `src/macro/rates.py` (pure: `nominal_decomposition`, `term_premium`,
+`curve`, `policy_expectations`, `treasury_proxy_returns`) and `load_rates_inputs()` in
+`src/macro/inputs.py` (13 daily FRED codes); 10 tests. Definitions follow spec section 2 unchanged.
+Notes: `THREEFYTP10` is vintaged from 2016-05 only, so under E2 "drop" the term premium starts
+there (`latest_lagged` for exploration). 10Y decomposition residual max 2 bp (rounding). Live values on
+2026-10-23: 10Y 4.96 = real 2.64 + BE 2.34 (3m move +35 bp, two-thirds real), curve `bear_flattener`,
+T10Y2Y +0.31, DGS2-DFF +0.77.
+
 ## C5. Market state and positioning (`src/macro/market.py`)
 
 Not macro state. Used for the pricing comparison (C7) and as conditioning variables.
