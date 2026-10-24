@@ -1,6 +1,6 @@
 # Macro research layer — implementation plan (blended)
 
-**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0 done 2026-10-22** (see "C0 outcome"); C1 and C2 done 2026-10-22; C3 next.
+**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0 done 2026-10-22** (see "C0 outcome"); C0–C3 done; C4 (rates) next.
 Replaces Part B of `docs/plans/cot_fix_and_macro_regimes.md`. Part A there (the COT fix) is complete
 and is a prerequisite.
 **Inputs:** the original Part B, and `docs/Macro Research Layer — Design Review.md`. Where they
@@ -331,6 +331,15 @@ before any results are seen (C8).
 | **Policy** `P` | Stance = DFF − core CPI NSA YoY (real policy rate), minus its expanding median | Impulse = 6-month Δ DFF | Stance 1958 (DFF 1954, core NSA YoY 1958) |
 | **Financial conditions** `FC` | Before 2011: z-mean of HY OAS, VIX and −(T10Y3M). From 2011: the same composite plus real-time `NFCI`, with the composite alone kept as the series that is comparable across the break | 3-month Δ | 1997 (HY OAS archive, C0.4) |
 | **Credit supply** `CS` | z-mean of: SLOOS tightening, −(bank credit YoY), HY OAS from 1997 | 2-quarter Δ SLOOS | 1990 (HY OAS component from 1997) |
+
+**C3 outcome (2026-10-24).** Definitions frozen in `docs/research/macro_state_definitions_v1.md`
+(researcher kept every default, J1–J9). Built as `src/macro/inputs.py` (DB loading + per-series causal
+transforms through `pit.py`, 20 inputs in 4.9 s) and `src/macro/state.py` (pure: `expanding_z`,
+`macro_state`, 0.1 s); 13 tests. Also: a daily fast path in `pit.realtime()`, and
+`USE_FIRST_RELEASE_DATE` so unrevised series with a real first print use it instead of the
+conservative lag. Clarifications are in the spec's change log. Live values on 2026-10-23: G_level
+0.14, G_impulse 0.10, core CPI 0.56 pp above the 2% target (impulse -0.01), P_stance +0.27 (restrictive,
+barely), FC -0.05, CS -0.20.
 
 Output: `macro_state(db_or_inputs) -> pd.DataFrame` with columns `G_level, G_impulse, pi_level,
 pi_impulse, L_level, L_impulse, P_stance, P_impulse, FC, FC_impulse, CS`, plus a staleness column

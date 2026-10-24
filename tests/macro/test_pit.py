@@ -178,7 +178,9 @@ def test_unrevised_uses_latest_values_with_lag():
 def test_pit_series_dispatch_and_overrides():
     v = _monthly(n=30, revise=False)
     assert "CPILFENS" in UNREVISED_SERIES
-    pd.testing.assert_series_equal(pit_series(v, yoy, "CPILFENS"), unrevised(v, yoy, 62), check_names=False)
+    pd.testing.assert_series_equal(pit_series(v, yoy, "CPILFENS"), unrevised(v, yoy, 62, use_first_release=True),
+                                   check_names=False)
+    pd.testing.assert_series_equal(pit_series(v, yoy, "ICNSA"), unrevised(v, yoy, 19), check_names=False)
     pd.testing.assert_series_equal(pit_series(v, yoy, "SOMETHING"), realtime(v, yoy), check_names=False)
     assert RELEASE_LAG_OVERRIDES["BAMLH0A0HYM2"] == 1
     d = _vint([("2024-01-02", "2024-01-02", 3.0)])
@@ -222,3 +224,37 @@ def test_load_vintages_roundtrip(macro_db_path):
     out = realtime(v, yoy)
     assert len(out) > 100
     assert load_vintages(ro, "NOPE").empty
+
+
+def test_daily_fast_path_matches_snapshot_path():
+    days = pd.bdate_range("2020-01-01", periods=300)
+    v = _vint([(d, d, float(i % 7) + i * 0.01) for i, d in enumerate(days)])
+    fn = lambda s: s - s.shift(5)  # noqa: E731
+    fast = realtime(v, fn, daily=True, release_lag_days=1)
+    # force the snapshot path by adding one revision of an old period
+    slow = realtime(pd.concat([v, _vint([(days[0], days[10], 0.0)])]), fn, daily=True, release_lag_days=1)
+    common = fast.index.intersection(slow.index)
+    assert len(common) > 250
+    assert (fast.loc[common].round(9) == slow.loc[common].round(9)).all()
+    assert fast.index.min() == days[5] + pd.Timedelta(days=1)
+
+
+def test_unrevised_first_release_date_used_where_real_and_lag_for_bulk_history():
+    # 24 periods loaded in bulk on 2010-01-20, then one new period per month released 45 days after its start.
+    bulk = [(d, "2010-01-20", float(i)) for i, d in enumerate(pd.date_range("2008-01-01", periods=24, freq="MS"))]
+    live = [(d, d + pd.Timedelta(days=45), 24.0 + i) for i, d in enumerate(pd.date_range("2010-01-01", periods=6, freq="MS"))]
+    v = _vint(bulk + live)
+
+    plain = unrevised(v, lambda s: s, lag_days=62)
+    real = unrevised(v, lambda s: s, lag_days=62, use_first_release=True)
+
+    assert len(plain) == len(real) == 30      # no collapsed dates: every bulk period keeps its own
+    assert real.index[0] == pd.Timestamp("2008-01-01") + pd.Timedelta(days=62)      # bulk history: lag
+    assert real.index[-1] == pd.Timestamp("2010-06-01") + pd.Timedelta(days=45)     # real release date
+    assert plain.index[-1] == pd.Timestamp("2010-06-01") + pd.Timedelta(days=62)
+    assert (real.index <= plain.index).all() and real.index.is_unique
+    # a series that is NOT in USE_FIRST_RELEASE_DATE keeps the lag (ICNSA's advance estimate is revised)
+    from src.macro.pit import USE_FIRST_RELEASE_DATE
+    assert "ICNSA" not in USE_FIRST_RELEASE_DATE and "CPILFENS" in USE_FIRST_RELEASE_DATE
+    assert pit_series(v, lambda s: s, "CPILFENS").index[-1] == real.index[-1]
+    assert pit_series(v, lambda s: s, "ICNSA").index[-1] == pd.Timestamp("2010-06-01") + pd.Timedelta(days=19)

@@ -62,6 +62,11 @@ UNREVISED_SERIES: dict[str, int] = {
     "SAHMREALTIME": 40,   # real-time by construction
 }
 
+# The subset of UNREVISED_SERIES whose first print is the final value (no advance
+# estimate), so the real first-release date can replace the conservative lag wherever
+# ALFRED recorded one. Not ICNSA / CCSA: their early prints are revised.
+USE_FIRST_RELEASE_DATE: frozenset[str] = frozenset({"CPILFENS", "CPIAUCNS", "DRTSCILM", "SAHMREALTIME"})
+
 # Series whose stored release_date is known to precede publication.
 # code -> extra business days. The ICE OAS series appear the next morning.
 RELEASE_LAG_OVERRIDES: dict[str, int] = {
@@ -150,7 +155,8 @@ def realtime(
                           value is usable (per-series override).
         pre_vintage:      "drop" (default) or "latest_lagged" (see module docstring).
         daily:            True for daily series, which legitimately have
-                          release_date == period_date; suppresses the stamped-row warning.
+                          release_date == period_date; suppresses the stamped-row warning and,
+                          if no period has more than one release, takes a single-pass fast path.
         label:            Name used in warnings.
 
     Returns:
@@ -166,6 +172,19 @@ def realtime(
         _warn_if_stamped(v, label)
 
     lag = pd.Timedelta(days=release_lag_days)
+
+    if daily and not v.duplicated("period_date").any():
+        # Unrevised daily series (one release per period): for a causal fn the snapshot
+        # at each release is just the series up to it, so apply fn once.
+        res = fn(pd.Series(v["value"].to_numpy(dtype=float), index=pd.DatetimeIndex(v["period_date"])).sort_index())
+        released = pd.Series(v["release_date"].to_numpy(), index=pd.DatetimeIndex(v["period_date"]))
+        res = res.dropna()
+        out = pd.Series(res.to_numpy(dtype=float), index=pd.DatetimeIndex(released.reindex(res.index).to_numpy()) + lag)
+        out = out[~out.index.duplicated(keep="last")].sort_index()
+        out.attrs.update(first_vintage=v["release_date"].iloc[0], n_vintages=int(v["release_date"].nunique()),
+                         pre_vintage=pre_vintage)
+        return out
+
     current: dict[pd.Timestamp, float] = {}
     when: list[pd.Timestamp] = []
     vals: list[float] = []
@@ -200,17 +219,32 @@ def unrevised(
     vintages: pd.DataFrame,
     fn: Callable[[pd.Series], pd.Series],
     lag_days: int,
+    use_first_release: bool = False,
 ) -> pd.Series:
     """Latest values, transformed once, available `lag_days` after each period.
 
     For series in UNREVISED_SERIES. `fn` must be causal. The lag should be an
     upper bound on the publication delay so the result cannot look ahead.
+
+    With use_first_release (series whose first print is final), a period that
+    was actually released within 2 x lag_days of its start becomes available on
+    its real first-release date; older periods, and any released on the series'
+    first vintage date (ALFRED's bulk load), use period + lag_days. This removes the staleness of the conservative lag in the
+    vintage era without ever looking ahead.
     """
     s = latest(vintages)
     if s.empty:
         return _empty()
     res = fn(s).dropna()
-    out = pd.Series(res.to_numpy(dtype=float), index=res.index + pd.Timedelta(days=lag_days))
+    avail = pd.Series(res.index + pd.Timedelta(days=lag_days), index=res.index)
+    if use_first_release:
+        clean = _clean(vintages)
+        first = clean.groupby("period_date")["release_date"].min().reindex(res.index)
+        # Periods first released on the series' first vintage date were bulk-loaded history,
+        # whatever their age: their release date says nothing about publication.
+        real = (first > clean["release_date"].min()) & ((first - res.index.to_series()).dt.days <= 2 * lag_days)
+        avail = avail.where(~real, first)
+    out = pd.Series(res.to_numpy(dtype=float), index=pd.DatetimeIndex(avail.to_numpy()))
     out = out[~out.index.duplicated(keep="last")]
     out.attrs.update(first_vintage=None, n_vintages=0, pre_vintage="unrevised")
     return out
@@ -228,7 +262,7 @@ def pit_series(
     Applies RELEASE_LAG_OVERRIDES[code] as the extra lag for realtime().
     """
     if code in UNREVISED_SERIES:
-        return unrevised(vintages, fn, UNREVISED_SERIES[code])
+        return unrevised(vintages, fn, UNREVISED_SERIES[code], use_first_release=code in USE_FIRST_RELEASE_DATE)
     return realtime(vintages, fn, release_lag_days=RELEASE_LAG_OVERRIDES.get(code, 0),
                     pre_vintage=pre_vintage, daily=daily, label=code)
 

@@ -170,3 +170,27 @@ tune it against asset returns.
 | Date | Version | Change | Reason |
 |---|---|---|---|
 | 2026-10-24 | v1 | Frozen as written | Researcher approved defaults J1–J9 |
+| 2026-10-24 | v1 (clarification) | Ambiguities resolved while writing C3; **no definition changed**: see below | Implementation needed a single reading |
+
+### Clarifications made while implementing C3 (2026-10-24)
+
+1. **Quarterly burn-in** is 20 observations (5 years); section 0 only listed monthly, weekly and daily.
+2. **`FC` and `CS` require all their components** (3 and 2). The "at least 2" rule applies to the
+   growth and labor composites. This keeps `FC` and `CS` one recipe across their whole history, as
+   the spec intends.
+3. **`growth_inflation` signs:** growth = sign of `G_impulse` (a z-composite); inflation = sign of the
+   **raw** `pi_impulse` in pp, i.e. whether core YoY is rising or falling. The spec wording
+   "z-scored, expanding" for the inflation side would shift the zero point to the expanding mean, which
+   makes "rising" ambiguous. `pi_impulse` is not z-scored in the state vector.
+4. **Staleness** is reported per dimension (`G`, `pi`, `L`, `P`, `FC`, `CS`) as days since the newest
+   input release, not per output column.
+5. **Release timing for unrevised series.** For core CPI NSA, SLOOS and the real-time Sahm rule
+   (first print is final), a period becomes available on its **actual first-release date** where ALFRED
+   recorded one, and on `period + lag` only for history ALFRED loaded in bulk. `ICNSA` and `CCSA` keep
+   the fixed lag because their early prints are revised. This moved current core-CPI staleness from 21
+   to 9 days; it changes when a value is usable, not what it is.
+6. **Actual valid-from dates** (spec section 1 gave approximations): `G_level` and `G_impulse` 1960-04
+   (two components, three from ~1965, four from ~1971); `pi_level` 1958-03; `pi_impulse` 1958-09;
+   `L_level` 1960-03; `L_impulse` 1971-04; `P_stance_raw` 1958-03; `P_stance` 1963-02;
+   `P_impulse` 1954-12; `FC` 1999-11; `CS` 1999-11 (spec said ~2001).
+
