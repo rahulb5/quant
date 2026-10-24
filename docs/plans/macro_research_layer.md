@@ -385,6 +385,22 @@ Sector ETFs (XLY/XLP/XLI/XLU) would make a better cyclicals/defensives measure, 
 the DB. Add them through the equity collector only if the ratios above turn out too noisy. Yahoo
 history for them starts in 1998.
 
+**C5 outcome (2026-10-24).** Built `src/macro/market.py` (pure: `credit`, `dollar`, `volatility`,
+`equity_trend`, `growth_pricing`, `inflation_pricing`, `policy_pricing`, `positioning`, `market_state`)
+and `load_market_inputs()` / `load_prices()` in `src/macro/inputs.py`; 9 tests (547 in the suite pass).
+Definitions follow spec section 3, with the clarifications in the spec's change log. Findings for review:
+
+- **Dollar starts in late 2019, not 2006.** `DTWEXBGS` vintages only begin 2019-02; under E2 "drop" the
+  `usd_state` (and C6 `dollar_trend`) is valid from 2019-11. The index *is* revised (first print vs latest:
+  mean 0.96% in level, max 1.9%; 63-day % change differs by 0.12 pp mean, 1.8 pp max), so it doesn't
+  qualify for `UNREVISED_SERIES`. Researcher decision needed (see the spec change log).
+- `growth_pricing` has 2 components from ~1993, 3 from 1997 (HY OAS), 4 from 2003 (copper/gold); `_n` is stored.
+- Positioning z-scores start 2009 (2006 data + 156-week burn-in); `inflation_pricing` 2006.
+- S&P 500 and Russell prices in the DB end 2026-10-02 (stale; refresh via `scripts/fetch_equity.py`).
+- Live 2026-10-23: HY OAS 3.40 (+0.59 in 3m), `strong_usd` (+1.6% vs 200d), `mid_vol` (VIX 19), `risk_on`,
+  growth pricing -0.47, inflation pricing +0.46, policy pricing +0.27; 10Y-note and E-mini leveraged
+  funds are net short at about -1.7 and -1.6 sigma.
+
 ## C6. Regime layer (`src/macro/regimes.py`)
 
 `Regime` subclasses that **read the C3/C5 state** and don't compute their own inputs. Each regime

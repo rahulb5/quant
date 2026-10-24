@@ -24,7 +24,7 @@ from typing import Callable
 import pandas as pd
 
 from src.db.client import Database
-from src.macro.data import load_vintages
+from src.macro.data import load_cot, load_vintages
 from src.macro.pit import PreVintage, pit_series
 from src.macro.transforms import transform
 
@@ -124,6 +124,52 @@ def load_rates_inputs(db: Database, pre_vintage: PreVintage = "drop") -> dict[st
         s = pit_series(v, level, code, pre_vintage=pre_vintage, daily=True)
         if not s.empty:
             out[code] = s
+    return out
+
+
+MARKET_FRED = [
+    "BAMLH0A0HYM2", "BAMLC0A0CM", "BAMLC0A4CBBB", "DTWEXBGS", "VIXCLS",
+    "T10Y2Y", "T10YIE", "DGS2", "DFF",
+]
+MARKET_PRICES = {"spx": 100001, "rut": 100003, "copper": 300017, "gold": 300009}
+
+
+def load_prices(db: Database, asset_id: int) -> pd.Series:
+    """Daily close of an asset, indexed by its (timezone-naive) trading date."""
+    df = db.query_df(
+        "SELECT timestamp, close FROM prices WHERE asset_id = ? AND interval = '1d' ORDER BY timestamp",
+        [asset_id],
+    )
+    if df.empty:
+        return pd.Series(dtype=float)
+    ts = pd.DatetimeIndex(df["timestamp"])
+    if ts.tz is not None:
+        ts = ts.tz_convert("America/New_York").tz_localize(None)
+    return pd.Series(df["close"].to_numpy(dtype=float), index=ts.normalize()).rename(asset_id)
+
+
+def load_market_inputs(db: Database, pre_vintage: PreVintage = "drop") -> dict[str, pd.Series]:
+    """Inputs for src.macro.market: FRED daily series (through pit), closing prices
+    (usable on their own date) and COT net % of open interest, dated report date + 3
+    days (the spec's availability rule). Missing series are omitted."""
+    from src.macro.market import COT_AVAILABLE_LAG_DAYS, POSITIONING
+
+    out: dict[str, pd.Series] = {}
+    for code in MARKET_FRED:
+        v = load_vintages(db, code)
+        if v.empty:
+            continue
+        s = pit_series(v, level, code, pre_vintage=pre_vintage, daily=True)
+        if not s.empty:
+            out[code] = s
+    for key, aid in MARKET_PRICES.items():
+        s = load_prices(db, aid)
+        if not s.empty:
+            out[key] = s
+    for key, (code, measure, _) in POSITIONING.items():
+        s = load_cot(db, code, measure, pct_of_oi=True)
+        if not s.empty:
+            out[key] = s.set_axis(s.index + pd.Timedelta(days=COT_AVAILABLE_LAG_DAYS))
     return out
 
 

@@ -194,3 +194,17 @@ tune it against asset returns.
    `L_level` 1960-03; `L_impulse` 1971-04; `P_stance_raw` 1958-03; `P_stance` 1963-02;
    `P_impulse` 1954-12; `FC` 1999-11; `CS` 1999-11 (spec said ~2001).
 
+
+### Clarifications made while implementing C5 (2026-10-24)
+
+No definition changed.
+
+1. **Credit:** the frozen table says `BBB OAS − IG OAS`; the plan's C5 table said IG − BBB. Implemented as in this file.
+2. **Dollar valid-from:** the spec's "from 2006" assumed the full `DTWEXBGS` history. Its ALFRED vintages start
+   2019-02 and the series is revised (mean 0.96% in level), so under the E2 "drop" rule `usd_state` starts 2019-11.
+   Not changed; options are `pre_vintage="latest_lagged"` (labelled exploration) or accepting the short sample.
+3. **Growth pricing** follows the ≥ 2 components rule of section 0, so its recipe has 2, 3, then 4
+   components over its history (~1993, 1997, 2003). The count is stored as `growth_pricing_n`.
+4. **Positioning** is dated `report_date + 3` days, per this section, rather than the DB `release_date`.
+5. **Volatility terciles** use `expanding_bucket_labels` on the release-dated VIX series (same function and labels
+   as `VolRegime`, no DB access).
