@@ -280,3 +280,8 @@ def test_pre_vintage_lag_applies_only_to_backfill():
     pit = pit_series(v, lambda s: s, "DTWEXBGS", daily=True)       # default pre_vintage="drop"
     assert pit.index.min() == pd.Timestamp("2018-12-13")           # policy overrides the drop
     assert pit_series(v, lambda s: s, "OTHER", daily=True).index.min() >= pd.Timestamp("2019-02-04")
+
+
+def test_ccsa_uses_backfill_policy_not_the_unrevised_rule():
+    from src.macro.pit import PRE_VINTAGE_LATEST_LAGGED, UNREVISED_SERIES
+    assert "CCSA" not in UNREVISED_SERIES and PRE_VINTAGE_LATEST_LAGGED["CCSA"] == 19

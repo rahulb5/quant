@@ -232,3 +232,12 @@ No definition changed.
    756-day burn-in (the section 0 burn-in for daily series); no burn-in was specified.
 6. **`sahm_triggered`** is computed from `UNRATE` vintages (3-month average minus the minimum of the prior 12
    months' averages, >= 0.5 pp); `SAHMREALTIME` is the cross-check only.
+
+### Clarification made after the C8 validation (2026-10-24)
+
+No definition changed. **Continuing claims (`CCSA`, `cont_yoy13`, a component of `L_impulse`)** failed the unrevised-series
+test in C8 (revised about 2% in level, still 56 days after the period), so it is moved from `UNREVISED_SERIES` to
+`PRE_VINTAGE_LATEST_LAGGED`, the same treatment as `DTWEXBGS` (researcher decision): real-time vintages from 2009-09-10,
+back-filled latest values available 19 days after each period before that. `L_impulse` is approximate before 2009-09-10
+(`macro_state().attrs["approximate_before"]`). Effect: `L_impulse` correlation 1.000 with the previous build, mean abs.
+difference 0.006; `labor_deteriorating` differs on 0.4% of days; every macro regime label is unchanged.

@@ -174,3 +174,11 @@ def test_load_state_inputs_builds_release_dated_series(tmp_path):
     assert inp["pay_yoy"].index[0] == months[12] + pd.Timedelta(days=35)
     assert inp["pay_yoy"].iloc[0] == pytest.approx(120 / 1000 * 100)
     assert inp["dff"].iloc[0] == pytest.approx(0.1)
+
+
+def test_state_reports_inputs_that_are_approximate_before_their_first_vintage():
+    inp = _inputs()
+    inp["cont_yoy13"].attrs.update(pre_vintage="latest_lagged", first_vintage=pd.Timestamp("2009-09-10"))
+    st = macro_state(inp, IDX)
+    assert st.attrs["approximate_before"] == {"cont_yoy13": pd.Timestamp("2009-09-10")}
+    assert macro_state(_inputs(), IDX).attrs["approximate_before"] == {}

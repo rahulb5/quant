@@ -500,10 +500,10 @@ track recessions and stress episodes; real-time vs latest-vintage labels differ 
 `growth_inflation`; the real-time build is bit-identical under truncation at 2012 and 2019; no regimes overlap
 (max Cramér's V 0.54). **Findings that need a decision:** (D1) `policy`, `financial_conditions` and
 `curve_dynamics` flip every 3-4 days (median episode), so they are not usable as defined; a 21-day
-`min_duration` would give 62 / 33 / 125 episodes with every label still at 5+ episodes; (D2) continuing claims
-(`CCSA`) is revised about 2% in level after 56 days, so it doesn't belong in `UNREVISED_SERIES`. Also reported:
+`min_duration` would give 62 / 33 / 125 episodes with every label still at 5+ episodes; (D2, decided and applied 2026-10-24) continuing claims
+(`CCSA`) is revised about 2% in level after 56 days, so it moved from `UNREVISED_SERIES` to `PRE_VINTAGE_LATEST_LAGGED` (lag 19), the dollar treatment; no regime changed. Also reported:
 SLOOS was restated in 2019-11, policy stance reads "accommodative" through 2009-2022 (negative real rates), and
-fixed release lags were exceeded in 2025 (shutdown). **Checkpoint: researcher reads it and decides D1/D2 before
+fixed release lags were exceeded in 2025 (shutdown). **Checkpoint: researcher reads it and decides D1 before
 C7 and C9.**
 
 ## C9. Experiment integration

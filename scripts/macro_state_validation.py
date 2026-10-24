@@ -128,7 +128,7 @@ def latest_vintage_inputs(database, names=None) -> dict:
     vintage date are dropped, as in the real-time build. Unrevised series use their normal build."""
     from src.macro import inputs as I
     from src.macro.data import load_vintages
-    from src.macro.pit import UNREVISED_SERIES, _clean, latest, pit_series
+    from src.macro.pit import PRE_VINTAGE_LATEST_LAGGED, UNREVISED_SERIES, _clean, latest, pit_series
 
     out = {}
     raw = {}
@@ -145,7 +145,12 @@ def latest_vintage_inputs(database, names=None) -> dict:
         res = fn(latest(v)).dropna()
         first = _clean(v).groupby("period_date")["release_date"].min()
         avail = first.reindex(res.index)
-        keep = avail > first.min() if not daily else avail.notna()
+        if code in PRE_VINTAGE_LATEST_LAGGED:   # same back-fill rule as the real-time build before the first vintage
+            bulk = avail <= first.min()
+            avail = avail.where(~bulk, pd.Series(res.index + pd.Timedelta(days=PRE_VINTAGE_LATEST_LAGGED[code]), index=res.index))
+            keep = avail.notna()
+        else:
+            keep = avail > first.min() if not daily else avail.notna()
         res, avail = res[keep], avail[keep]
         s = pd.Series(res.to_numpy(dtype=float), index=pd.DatetimeIndex(avail.to_numpy()))
         out[name] = s[~s.index.duplicated(keep="last")].sort_index()
@@ -227,7 +232,7 @@ def vintage(d: dict) -> None:
         lat = fn(latest(v))
         out = {"series": code, "lag": lag}
         for label, ser in (("first_print", fn(snapshot(False))), ("as_of_lag", fn(snapshot(True)))):
-            both = pd.concat([ser, lat], axis=1, keys=["x", "latest"]).dropna()
+            both = pd.concat([ser, lat], axis=1, keys=["x", "latest"], sort=True).dropna()
             both = both[both.index.isin(era)]
             diff = (both["x"] - both["latest"]).abs()
             out[f"{label}_mean"], out[f"{label}_p95"], out[f"{label}_max"] = diff.mean(), diff.quantile(0.95), diff.max()
@@ -250,7 +255,7 @@ def vintage(d: dict) -> None:
     print(md(pd.DataFrame(lagrows).T, "{:.2f}"))
 
     print("\nPeriods released later than the configured lag (vintage era):")
-    for code in ("ICNSA", "CCSA", "SAHMREALTIME", "CPIAUCNS"):
+    for code in ("ICNSA", "SAHMREALTIME", "CPIAUCNS"):
         v = _clean(raw.get(code, load_vintages_safe(code)))
         lag = UNREVISED_SERIES[code]
         firsts = v.groupby("period_date")["release_date"].min()

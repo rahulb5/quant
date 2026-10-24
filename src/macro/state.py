@@ -100,7 +100,10 @@ def macro_state(inputs: dict[str, pd.Series], index: pd.DatetimeIndex) -> pd.Dat
     component count G_level_n, G_impulse_n, L_impulse_n, FC_n, CS_n; and
     {G,pi,L,P,FC,CS}_staleness (days since the newest input release).
     Missing inputs leave their columns NaN. DataFrame.attrs["valid_from"] maps
-    each value column to its first non-NaN date.
+    each value column to its first non-NaN date, and DataFrame.attrs["approximate_before"]
+    maps each input that uses back-filled latest values before its first vintage
+    (pit.PRE_VINTAGE_LATEST_LAGGED, e.g. cont_yoy13 -> L_impulse) to that vintage date:
+    the columns it feeds are approximate before then.
     """
     out: dict[str, pd.Series] = {}
 
@@ -160,4 +163,8 @@ def macro_state(inputs: dict[str, pd.Series], index: pd.DatetimeIndex) -> pd.Dat
     df = pd.DataFrame({c: out[c] for c in cols}, index=index)
     value_cols = [c for c in cols if not c.endswith(("_n", "_staleness"))]
     df.attrs["valid_from"] = {c: (df[c].first_valid_index()) for c in value_cols}
+    df.attrs["approximate_before"] = {
+        name: s.attrs["first_vintage"] for name, s in inputs.items()
+        if s.attrs.get("pre_vintage") == "latest_lagged" and s.attrs.get("first_vintage") is not None
+    }
     return df

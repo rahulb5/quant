@@ -56,7 +56,6 @@ UNREVISED_SERIES: dict[str, int] = {
     "CPILFENS": 62,       # core CPI, NSA
     "CPIAUCNS": 62,       # headline CPI, NSA
     "DRTSCILM": 60,       # SLOOS C&I tightening
-    "CCSA": 12,           # continuing claims
     "ICNSA": 19,          # initial claims NSA: advance estimate is revised the next week
                           # (residual ~0.5% of level after 19 days, mostly annual re-benchmark)
     "SAHMREALTIME": 40,   # real-time by construction
@@ -64,7 +63,7 @@ UNREVISED_SERIES: dict[str, int] = {
 
 # The subset of UNREVISED_SERIES whose first print is the final value (no advance
 # estimate), so the real first-release date can replace the conservative lag wherever
-# ALFRED recorded one. Not ICNSA / CCSA: their early prints are revised.
+# ALFRED recorded one. Not ICNSA: its early prints are revised.
 USE_FIRST_RELEASE_DATE: frozenset[str] = frozenset({"CPILFENS", "CPIAUCNS", "DRTSCILM", "SAHMREALTIME"})
 
 # Series whose vintage history starts late but whose backfilled history is used anyway, by a
@@ -75,8 +74,12 @@ USE_FIRST_RELEASE_DATE: frozenset[str] = frozenset({"CPILFENS", "CPIAUCNS", "DRT
 #   DTWEXBGS: first vintage 2019-02-04 (the Fed back-filled 2006-2018). Revised (weights update):
 #   against the real-time label, the latest-vintage 200-day-gap label differs on 4.5% of days
 #   (2019-2026). Real-time release lag is median 5, max 10 days; the backfill uses 10.
+#   CCSA: first vintage 2009-09-10, history from 1967. First prints are revised by ~2% of the level
+#   (mean) and stay that way 56 days on, so it fails the unrevised test (C8). Real-time lag is 12 days
+#   for 95% of weeks and 19 at the 99th percentile (holiday weeks); the backfill uses 19.
 PRE_VINTAGE_LATEST_LAGGED: dict[str, int] = {
     "DTWEXBGS": 10,
+    "CCSA": 19,
 }
 
 # Series whose stored release_date is known to precede publication.

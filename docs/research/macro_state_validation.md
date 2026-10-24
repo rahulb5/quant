@@ -16,12 +16,12 @@
 | Do financial conditions and credit supply light up in the known stress episodes? | Yes: `FC` peaks at the 91st–99th percentile of its history in 2001, 2008, 2011, 2020, 2022, 2023. `CS` peaks at the 95th–100th in 2001, 2008, 2023 and misses 2020 | §3 |
 | Do the policy quadrants map onto Fed cycles? | The *direction* half does. The *stance* half labels almost every cycle since 2009 "accommodative", because real rates were negative | §4 |
 | Would a latest-vintage backtest flatter the results? | Yes, modestly for growth: the `growth_inflation` label differs on 7.0% of days, `growth_level` on 4.9%. Policy 0%, financial conditions 0.8% | §5 |
-| Do the unrevised-series rules hold? | CPI, SLOOS (in the vintage era): yes. ICNSA: roughly. **CCSA: no.** SLOOS history was restated in 2019 | §5 |
-| Is the real-time build free of lookahead? | Yes: 14 of 14 real-time inputs are bit-identical when the database is cut at 2012 or 2019 | §5 |
+| Do the unrevised-series rules hold? | CPI, SLOOS (in the vintage era): yes. ICNSA: roughly. **CCSA failed** and was moved to the dollar treatment (decided and applied, §5.2). SLOOS history was restated in 2019 | §5 |
+| Is the real-time build free of lookahead? | Yes: 15 of 15 real-time inputs (continuing claims included) are bit-identical when the database is cut at 2012 or 2019 | §5 |
 | Are any regimes near-duplicates? | No. Highest Cramér's V is 0.54 (`policy` and `growth_level`) | §6 |
 | Are the regimes usable as defined? | **No, four of six are too noisy.** Median episode length is 2–5 days for `policy`, `financial_conditions` and `curve_dynamics` | §7 |
 
-The two things you need to decide are the regime stability rule (§8, D1) and what to do with continuing claims (§8, D2). Both are about data and label behaviour, not returns.
+One thing is left to decide: the regime stability rule (§8, D1). It is about label behaviour, not returns. Continuing claims (D2) were decided on 2026-10-24 and applied.
 
 ## 2. Growth and labor against recessions
 
@@ -158,24 +158,24 @@ Inflation and policy don't change because core CPI NSA and `DFF` are unrevised. 
 | `sloos` | DRTSCILM | 60 | 0.000 | 0.000 | 0.000 | 65 |
 | `claims_yoy13` (pp) | ICNSA | 19 | 0.79 | 4.55 | 15.7 | 841 |
 | `claims_yoy13_d26` (pp) | ICNSA | 19 | 1.15 | 5.56 | 15.9 | 815 |
-| `cont_yoy13` (pp) | CCSA | 12 | **2.45** | **9.29** | 58.9 | 818 |
 
 - **Core CPI NSA and SLOOS hold.** CPI differences are a few thousandths of a point.
 - **ICNSA roughly holds.** The mean difference is about 1 pp on a year-over-year change that moves by tens of points. The residual is the annual re-benchmark.
-- **CCSA does not.** Continuing claims are still being revised 56 days after the period: mean level difference 1.8–2.0%, p95 6%, max 16%, flat from 14 to 56 days. The "unrevised" label from C1 was wrong for this series. How much it matters: `L_impulse` with and without it correlates at 0.975 (mean abs. diff 0.12) and the `labor_deteriorating` flag differs on 4.5% of days.
+- **CCSA failed the test.** Continuing claims are still being revised 56 days after the period: mean level difference 1.8–2.0%, p95 6%, max 16%, flat from 14 to 56 days; on the 13-week YoY input the 12-day rule differed from the latest value by 2.45 pp on average (p95 9.3). The "unrevised" label from C1 was wrong for this series.
+- **Decision (2026-10-24): continuing claims get the dollar treatment.** Real-time vintages from 2009-09-10, and before that the back-filled latest values, available 19 days after each period (`pit.PRE_VINTAGE_LATEST_LAGGED["CCSA"] = 19`: 12 days for 95% of weeks, 19 at the 99th percentile; the 2025 shutdown delays of up to 61 days fall in the real-time era, where actual release dates are used). `L_impulse` is therefore **approximate before 2009-09-10** (`macro_state().attrs["approximate_before"]`). Effect against the old rule: `L_impulse` correlation 1.000 (mean abs. diff 0.006, max 0.05), `labor_deteriorating` differs on 0.4% of days, and all four macro regimes are identical. The full 1968 history is kept.
 - **SLOOS was restated once.** In the 2019-11-04 release the Fed rewrote 37 quarters from 1990-Q2 to 2008-Q3 (mean change 2.6 points, max 7.7), and one more in 2012. In the vintage era (2010 on) it's unrevised, but `CS`'s expanding mean and standard deviation include the restated 1990–2008 values, which weren't available before 2019.
-- **Lags are not strict upper bounds.** Periods released later than the configured lag: ICNSA 5 (all 2025, max 54 days vs 19), CCSA 7 (2014, 2017, 2018, 2025; max 33 vs 12), SAHMREALTIME 3 (2025–26; max 80 vs 40), CPI 0. These are mostly the October–November 2025 government shutdown. Effect: on those dates a value is used up to a few weeks before it was published.
+- **Lags are not strict upper bounds.** Periods released later than the configured lag: ICNSA 5 (all 2025, max 54 days vs 19), SAHMREALTIME 3 (2025–26; max 80 vs 40), CPI 0. (CCSA also had late weeks, 7 of them, but it now uses real release dates in the vintage era.) These are mostly the October–November 2025 government shutdown. Effect: on those dates a value is used up to a few weeks before it was published.
 
 ### 5.3 Lookahead on the live data
 
 I rebuilt every state input as if the database ended on 2012-12-31 and on 2019-12-31 (dropping every vintage released later), and compared dates up to the cut with the full build.
 
-- **All 14 real-time inputs are bit-identical** at both cuts (max difference 0.000000): `ip`, `pay`, `unr`, `temp`, `hours`, `dff`, HY OAS, VIX, T10Y3M, bank credit.
-- The six inputs on the unrevised rule (four series: ICNSA, CCSA, core CPI, SLOOS) differ, because "latest" moves as revisions arrive: ICNSA by at most 0.002 pp (2012 cut) and 0.066 pp (2019); CCSA by 0.38 and 4.1 pp; SLOOS by 7.7 (2012 cut, the 2019 restatement) and 0 (2019 cut); core CPI by 0. This is the unrevised assumption showing up, not a bug.
+- **All 15 real-time inputs are bit-identical** at both cuts (max difference 0.000000): `ip`, `pay`, `unr`, `temp`, `hours`, continuing claims, `dff`, HY OAS, VIX, T10Y3M, bank credit.
+- The five inputs still on the unrevised rule (three series: ICNSA, core CPI, SLOOS) differ, because "latest" moves as revisions arrive: ICNSA by at most 0.002 pp (2012 cut) and 0.066 pp (2019); SLOOS by 7.7 (2012 cut, the 2019 restatement) and 0 (2019 cut); core CPI by 0. This is the unrevised assumption showing up, not a bug.
 
 ### 5.4 Thin real-time history
 
-- `L_impulse` has 3 components until 2010–11 and 5 after (temp help from 2011-01, hours from 2010-06). Over 2012+, the 5-component and 3-component versions correlate at 0.81 (mean abs. diff 0.29), so the series changes character across the break. It only feeds the `labor_deteriorating` flag.
+- `L_impulse` has 3 components until 2010–11 and 5 after (temp help from 2011-01, hours from 2010-06). Over 2012+, the 5-component and 3-component versions correlate at 0.81 (mean abs. diff 0.29), so the series changes character across the break. It only feeds the `labor_deteriorating` flag. `L_impulse` is also approximate before 2009-09 for the continuing-claims reason in §5.2.
 - `FC` has no era break (same three inputs throughout); NFCI is a cross-check only (§3).
 
 ## 6. Overlap
@@ -236,26 +236,26 @@ At 21 days every label of every regime keeps at least 5 episodes and the median 
 
 ## 8. Decisions
 
-Spec section 7 allows a definition to change when C8 shows it's wrong, with a written reason and a new family version, and not because of how assets behave. These are proposals on that basis. Nothing is applied.
+Spec section 7 allows a definition to change when C8 shows it's wrong, with a written reason and a new family version, and not because of how assets behave. These are proposals on that basis. Only D2 has been applied (your decision); the rest are proposals.
 
 | # | Finding | Proposal | Effect |
 |---|---|---|---|
 | **D1** | Four regimes flip every 2–10 days (§7) | Apply `min_duration = 21` to `policy`, `financial_conditions`, `curve_dynamics` and `dollar_trend` (the J9 alternative: "apply to every regime"). Leave `growth_level` (already stable) | Episodes fall from 862 / 388 / 1,282 / 108 to 62 / 33 / 125 / 26; every change is confirmed 21 days late. New `family_version` v2 |
-| **D2** | Continuing claims aren't unrevised (§5.2) | Remove `CCSA` from `UNREVISED_SERIES`, so `cont_yoy13` is real-time from 2009-09 only | `L_impulse` correlation 0.975 with the current one; `labor_deteriorating` flag changes on 4.5% of days; `L_impulse` has 2 components before 2009 (still at least 2). Alternative: keep it and say so |
+| **D2** | Continuing claims aren't unrevised (§5.2) | **Decided and applied 2026-10-24:** same treatment as the dollar (real-time vintages from 2009-09, back-filled latest values with a 19-day lag before; `L_impulse` flagged approximate before then) | `L_impulse` correlation 1.000 with the old build; `labor_deteriorating` flag differs on 0.4% of days; regimes identical. Full 1968 history kept |
 | **D3** | SLOOS history was restated in 2019 (§5.2) | Keep, and label `CS` as approximate for its expanding baseline before 2019 | No code change; one line in the spec's change log |
 | **D4** | `policy` stance is "accommodative" through 2009–2022 (§4) | No change. Report `policy` results pre- and post-2008 separately, and don't read `restrictive_*` after 2008 | None |
 | **D5** | `L_level`, `L_impulse` are redundant with `G` (§6) | No change; don't use them as regressors beside `G` | None |
 | **D6** | Late releases in 2025 (shutdown) break the fixed lags (§5.2) | No change; note it. A patch for one event would be tuning to it | None |
 
-I'd do D1 and D2 together as `family_version` v2 of the macro state definitions. If you accept, I'd implement them, re-run the script, and replace §5, §7 and §8 with the v2 numbers before C9.
+D2 changed no regime, so it doesn't need a new family version. D1 would: if you accept it I'd implement it as `family_version` v2, re-run the script, and replace §7 and §8 with the v2 numbers before C9.
 
 ## 9. What this does not show
 
-- **Nothing about returns.** That's C7, and it should wait until D1/D2 are settled so the analysis is run once on frozen definitions.
+- **Nothing about returns.** That's C7, and it should wait until D1 is settled so the analysis is run once on frozen definitions.
 - **Recessions are 9 events.** AUCs are computed over thousands of days but rest on nine independent episodes, so treat them as sanity checks and not estimates.
 - **`USREC` is the latest vintage** (it's revised, and announced 6–18 months late). It's a reference for the check, not an input.
 - **The 21-day rule is causal**, so `growth_inflation` labels turn about a month after the underlying signs do. For a strategy this is the right (no-lookahead) behaviour, but it means the label is not synchronous with the economy.
-- **Dollar state is approximate before 2019-02** (`usd_approx`), by your decision of 2026-10-24.
+- **Dollar state is approximate before 2019-02** (`usd_approx`) and `L_impulse` before 2009-09, by your decisions of 2026-10-24.
 - **S&P 500 and Russell prices in the DB end 2026-10-02**, so `equity_trend` and the growth-pricing composite are three weeks stale at the right edge. A refresh with `scripts/fetch_equity.py` would fix that.
 
 ## 10. Reproduce
