@@ -32,6 +32,9 @@ validation:
   methodology: ''
   holdout_start: null
   n_trials: 96
+  family: cot_commercial_positioning
+  family_version: v1
+
 robustness:
   cost_multipliers:
   - 0.5

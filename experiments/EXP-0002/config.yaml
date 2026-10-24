@@ -34,6 +34,9 @@ validation:
   methodology: ''
   holdout_start: null
   n_trials: 10
+  family: formulaic_alphas
+  family_version: v1
+
 robustness:
   cost_multipliers:
   - 0.5
