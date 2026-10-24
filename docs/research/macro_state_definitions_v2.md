@@ -1,6 +1,6 @@
 # Macro state definitions — v2 (draft)
 
-**Status:** **DRAFT v2**, awaiting the researcher's review; the researcher marks it frozen. It is v1 (frozen 2026-10-24, `a1445a1`) plus the amendments decided after the C8 validation (`docs/research/macro_state_validation.md`): (1) `min_duration` = 21 business days on every regime except `growth_level` (C8 D1); (2) the market-style change window is 63 business days, and the J4 wording is corrected. The post-freeze clarifications (C3, C5, C6, continuing claims, dollar) are carried in the change log. Any later change needs a reason written in the "Change log" at the bottom and a new trial-ledger `family_version` (v3).
+**Status:** **Frozen v2**, awaiting the researcher's freeze (only the researcher changes this status). J1–J9 defaults confirmed by the researcher on 2026-10-24. v2 is v1 (frozen 2026-10-24, `a1445a1`) with one definition change from the C8 validation (`docs/research/macro_state_validation.md`), decision D1: `min_duration` = 21 business days on every regime except `growth_level`. The market-style change window stays at 63 business days (about 3 months); the J4 wording that said otherwise is corrected. Everything else, including the dollar and continuing-claims treatments, is unchanged from v1 and is now written into the tables below rather than only in the change log. Any later change needs a reason in the "Change log" at the bottom and a new trial-ledger `family_version` (v3).
 **Supersedes:** `macro_state_definitions_v1.md` for the ledger `family_version` `v2`.
 **Implements:** C3 (state vector), C4 (rates), C5 (market and positioning), C6 (regimes) in
 `docs/plans/macro_research_layer.md`.
@@ -10,7 +10,7 @@
 
 | Item | Definition |
 |---|---|
-| Point-in-time | Every input goes through `src/macro/pit.py`: `realtime()` for revised series, `unrevised()` (latest value + fixed lag) for `UNREVISED_SERIES`. Transforms below are applied **inside** that call, to each snapshot |
+| Point-in-time | Every input goes through `src/macro/pit.py`: `realtime()` for revised series, `unrevised()` (latest value + fixed lag) for `UNREVISED_SERIES`. `PRE_VINTAGE_LATEST_LAGGED` series (`DTWEXBGS` lag 10 days, `CCSA` lag 19) use real-time vintages from their first vintage and back-filled latest values + the lag before it; those days are flagged approximate. Transforms below are applied **inside** that call, to each snapshot |
 | Calendar | Business days (`pd.bdate_range`), forward-filled from release dates (`to_daily`) |
 | Year-ago | The last observation on or before the same calendar date one year earlier (as in `transforms._year_ago`), so 53-week years and holidays don't drift |
 | Expanding z-score | `z_t = (x_t − mean(x_≤t)) / std(x_≤t)`, computed **once per release** on the release-dated series (not on forward-filled days, which would overweight slow series), including the current observation (contemporaneous, as in `src/backtest/regimes.py`), then clipped to ±3 |
@@ -45,7 +45,7 @@ Core inflation is the target-gap reference, not headline: headline CPI NSA is ke
 | | Definition |
 |---|---|
 | `L_level` | `UNRATE` − its expanding median (pp). Positive = slack |
-| `L_impulse` | Deterioration composite (positive = worsening): 3-month change in `UNRATE`; 13-week average of NSA initial claims YoY; 13-week average of continuing claims YoY (`CCSA`); 6-month % change in temp-help employment (`TEMPHELPS`, real-time from 2011); −6-month change in average weekly hours (`AWHAETP`, from 2010). Components enter as they become available (needs ≥ 2) |
+| `L_impulse` | Deterioration composite (positive = worsening): 3-month change in `UNRATE`; 13-week average of NSA initial claims YoY; 13-week average of continuing claims YoY (`CCSA`: real-time from 2009-09-10, back-filled + 19-day lag before, so `L_impulse` is approximate before 2009-09-10); 6-month % change in temp-help employment (`TEMPHELPS`, real-time from 2011); −6-month change in average weekly hours (`AWHAETP`, from 2010). Components enter as they become available (needs ≥ 2) |
 | Valid from | ~1974 with three components; five from 2011 |
 
 ### Policy
@@ -103,7 +103,7 @@ All daily. Changes are over 63 business days (~3 months) unless stated.
 | Variable | Definition | From |
 |---|---|---|
 | Credit | HY OAS level; 63-day change; BBB OAS − IG OAS | 1997 |
-| Dollar | `DTWEXBGS` / its 200-day mean − 1; sign gives `strong_usd` (> 0) / `weak_usd` | 2006 |
+| Dollar | `DTWEXBGS` / its 200-day mean − 1; sign gives `strong_usd` (> 0) / `weak_usd`. Real-time vintages from 2019-02-04; before that the Fed's back-filled latest values, available 10 days after each period, flagged `usd_approx` | 2006-10 |
 | Volatility | `VIXCLS` level; expanding terciles (burn-in 756) via the existing `VolRegime` | 1990 |
 | Equity trend | S&P 500 (100001) vs its 200-day mean (existing `TrendRegime`) | 1970 |
 | Growth pricing | Composite of 63-day changes in: `T10Y2Y`; −HY OAS; log(Russell 2000 100003 / S&P 500 100001); log(copper `HG1` 300017 / gold `GC1` 300009) | 2000 |
@@ -115,6 +115,13 @@ All daily. Changes are over 63 business days (~3 months) unless stated.
 
 Each is a `Regime` subclass reading the series above. "Sign" of a z-scored composite: > 0 / ≤ 0.
 A value exactly at the boundary keeps the previous label.
+
+**`min_duration` (persistence rule, `regimes.MIN_DURATION` = 21).** Not a rolling average or smoothing of the inputs: the raw
+label is computed as defined, and a *new* label takes effect only on its 21st consecutive business day (20 days after the raw
+change); until then the previous label holds. It is causal (never back-dated), is applied to the final label (for `policy`, to
+stance × direction together), and a NaN resets it, after which the next label is adopted at once. Labels are computed on the full
+history and then sliced to a requested `start`/`end`. `min_duration=1` gives the raw labels. The `volatility` and `equity_trend`
+regimes in `src/backtest/regimes.py` have no rule.
 
 | `name` (layer) | Labels | Rule | `min_duration` |
 |---|---|---|---|
@@ -143,7 +150,7 @@ For each dimension, `gap = z_macro − z_market`, both expanding z-scores sample
 A positive gap means the data is stronger than the market is pricing. Forward returns are studied
 by gap tercile in C7.
 
-## 6. Judgement calls (J1–J8 confirmed 2026-10-24; J4 and J9 amended for v2)
+## 6. Judgement calls (defaults confirmed by the researcher 2026-10-24; J4 reworded and J9 changed for v2)
 
 The choices a reviewer could reasonably argue with. The default column is what v2 uses.
 
@@ -152,7 +159,7 @@ The choices a reviewer could reasonably argue with. The default column is what v
 | J1 | Unemployment gap | `UNRATE` − its expanding median | Trailing 10-year median (adapts faster to structural shifts, loses early history) |
 | J2 | z-score method | Expanding mean and std, clipped at ±3 | Median / MAD (robust to 2008 and 2020 outliers) |
 | J3 | Burn-in | 5 years monthly, 3 years weekly/daily | Shorter gives earlier start dates but noisier early z-scores |
-| J4 | Impulse window | 6 months (126 business days) for the macro impulses; 3 months (63 business days) for market-style changes (curve, rates, credit, pricing, `FC_impulse`) | 6 months for market series too (tried 2026-10-24 and reverted: the curve state still flipped every 3 days at the median) |
+| J4 | Impulse window | 6 months (126 business days) for the macro impulses; 3 months (63 business days, `state.CHANGE_WINDOW`) for market-style changes (curve, rates, credit, pricing, `FC_impulse`). Same values as v1; only the wording is corrected | 6 months for market series too (tried 2026-10-24 and reverted: the curve state still flipped every 3 days at the median) |
 | J5 | Policy stance baseline | Real rate minus its expanding median | A fixed neutral (e.g. 0.5% real) |
 | J6 | Policy impulse dead-band | ±25 bp over 6 months, direction held between | No dead-band (more flips on small moves) |
 | J7 | `CS` excludes HY OAS | Excluded (it's in `FC`) | Include it, as in the original plan |
@@ -170,14 +177,24 @@ tune it against asset returns.
 
 | Date | Version | Change | Reason |
 |---|---|---|---|
-| (date approved) | v2 | `min_duration` 21 on `policy`, `financial_conditions`, `curve_dynamics`, `dollar_trend`; J4 wording corrected (market changes are 63 business days, about 3 months) | C8: those regimes flipped every 3-10 days (median episode 3.0-10); 21 days leaves every label with 5+ episodes. J4 text said "6 months (63 business days)" |
+| 2026-10-24 | v2 (draft) | `min_duration` 21 business days on `policy`, `financial_conditions`, `curve_dynamics`, `dollar_trend` (v1: `growth_inflation` only); J4 wording corrected, window values unchanged | C8: those four regimes flipped every 3–10 days (median episode). See "v2 changes" below |
 
-The history below is v1's, kept unchanged.
+### v2 changes (decision D1 of the C8 validation, 2026-10-24)
 
-| Date | Version | Change | Reason |
-|---|---|---|---|
-| 2026-10-24 | v1 | Frozen as written | Researcher approved defaults J1–J9 |
-| 2026-10-24 | v1 (clarification) | Ambiguities resolved while writing C3; **no definition changed**: see below | Implementation needed a single reading |
+1. **`min_duration` = 21 on every regime except `growth_level`** (section 4). This was J9's alternative "apply to every regime".
+   Effect (label stability only, no returns used): episodes 862 → 62 (`policy`), 388 → 33 (`financial_conditions`),
+   1,282 → 125 (`curve_dynamics`), 108 → 26 (`dollar_trend`); median run 3.5 / 3.5 / 3.0 / 10 → 216 / 123 / 83 / 182 business days;
+   every label keeps at least 7 episodes (fewest: `financial_conditions` loose 7, `policy` accommodative_tightening 11); valid-from
+   dates unchanged. Known cost: slow labels miss fast events, e.g. `financial_conditions` is `tight` on 48% of the 2020-02-01 to
+   04-30 window (88% raw).
+2. **J4 wording.** v1 said "6 months (63 business days for market series)"; 63 business days is about 3 months, which is what the
+   code has always used for market-style changes. v2 states it as 3 months. A 126-day market window was tried on 2026-10-24 and
+   reverted the same day (the curve state still flipped every 3 days at the median), so there is no net change. The window is now a
+   single constant, `state.CHANGE_WINDOW`, imported by `rates.py` and `market.py`.
+
+### Carried over from v1 (no definition changed)
+
+The v1 change log (`macro_state_definitions_v1.md`) has the full history; the clarifications below still apply to v2.
 
 ### Clarifications made while implementing C3 (2026-10-24)
 
@@ -216,8 +233,7 @@ No definition changed.
    `market.dollar()` returns `usd_approx` = True on those days (3,208 days) and the input carries
    `pre_vintage="latest_lagged"`. Implemented as `pit.PRE_VINTAGE_LATEST_LAGGED = {"DTWEXBGS": 10}`; this is
    the one series that relaxes E2 by decision, and the reason is that no point-in-time history exists for it.
-   Results that use the dollar state before 2019 must say so. A sensitivity check against a DXY-style index
-   from spot FX is optional and not built.
+   Results that use the dollar state before 2019 must say so.
 3. **Growth pricing** follows the ≥ 2 components rule of section 0, so its recipe has 2, 3, then 4
    components over its history (~1993, 1997, 2003). The count is stored as `growth_pricing_n`.
 4. **Positioning** is dated `report_date + 3` days, per this section, rather than the DB `release_date`.
@@ -229,8 +245,8 @@ No definition changed.
 No definition changed.
 
 1. **Boundary rule:** a signed composite exactly at 0 keeps the previous label; before any earlier sign exists it is NaN.
-2. **`min_duration` is causal:** a new `growth_inflation` label takes effect on the day it completes 21 consecutive
-   business days, never retroactively. Labels therefore lag a regime change by about a month. A NaN resets it.
+2. **`min_duration` is causal:** a new label takes effect on the day it completes 21 consecutive
+   business days, never retroactively (in v1 this applied to `growth_inflation` only; v2 extends it, see section 4). Labels therefore lag a regime change by about a month. A NaN resets it.
 3. **Policy direction** is undefined (NaN label) until `P_impulse` first crosses ±25 bp; between crossings the last
    direction holds. The plan's separate `on_hold` category is not used (this file has four labels).
 4. **`financial_conditions` valid from 2002-10:** `FC` starts 1999-11 (clarification 6 above) plus the 756-day burn-in
@@ -248,39 +264,3 @@ test in C8 (revised about 2% in level, still 56 days after the period), so it is
 back-filled latest values available 19 days after each period before that. `L_impulse` is approximate before 2009-09-10
 (`macro_state().attrs["approximate_before"]`). Effect: `L_impulse` correlation 1.000 with the previous build, mean abs.
 difference 0.006; `labor_deteriorating` differs on 0.4% of days; every macro regime label is unchanged.
-
-### Change after the C8 validation: market-style change window 63 -> 126 business days (2026-10-24)
-
-**Researcher decision. This changes definitions, so it needs a new `family_version` (v2) and the definitions table above, which is
-frozen, is not edited; the researcher creates `macro_state_definitions_v2.md`.** Reason: J4 says "6 months (63 business days for market
-series)", but 63 business days is about 3 months, so the spec contradicted itself; the macro impulses (`G_impulse`, `pi_impulse`,
-`P_impulse`, `CS_impulse`) are 6-month changes, and the market series they are compared with in the pricing divergence (section 5)
-should use the same horizon. Every 63-business-day change is now 126 (`state.CHANGE_WINDOW`, also used by `rates.py` and `market.py`):
-`FC_impulse`; `T10Y2Y` and `DGS10` changes in the curve state; the nominal / real / breakeven attribution changes; the term
-premium and policy-expectation changes; the HY OAS change; and the growth, inflation and policy pricing changes. Not changed:
-the 3-month average in the Sahm rule, `unr_d3` (a stated 3-month change in `UNRATE`) and the 200-day dollar mean.
-Effect (label stability only; no returns were used): `curve_dynamics` episodes 1,282 -> 816, mean run 10 -> 16 business days,
-median unchanged at 3; valid from 1976-11-24 (was 1976-08-27); no other regime label changed. Series valid-from dates move out
-by about 63 business days for the changed variables.
-
-### Change after the C8 validation: 126-day window reverted; `min_duration` 21 on every macro-layer regime except `growth_level` (2026-10-24)
-
-**Researcher decision (C8 D1). This changes definitions, so it is family `v2`; the table above is frozen and not edited. The researcher
-creates `macro_state_definitions_v2.md`.** Two changes, both made after the 126-day entry above:
-
-1. **Change window back to 63 business days.** `state.CHANGE_WINDOW = 63` again (about 3 months): `FC_impulse`, the curve state
-   and the other rates changes, the HY OAS change, and the growth / inflation / policy pricing changes. The macro impulses stay at 6
-   months (126 days). The J4 text in this file ("6 months (63 business days for market series)") is a wording slip: for market series
-   it means 63 business days, about 3 months. The 126-day trial left no trace in the code, except that the window is now one constant (`state.CHANGE_WINDOW`, imported by `rates.py` and `market.py`).
-2. **`min_duration` = 21 business days on `policy`, `financial_conditions`, `curve_dynamics` and `dollar_trend`**, in addition to
-   `growth_inflation` (unchanged). `growth_level` keeps no rule. This is the J9 alternative "apply to every regime", chosen because
-   those four regimes flipped every 3-10 days (median episode 3.0-10 business days). The rule is causal: a new label takes effect on
-   its 21st consecutive day, i.e. 20 business days after the raw change. A NaN resets it and the next label is then adopted at once. It is applied to the final label (for `policy`, to
-   stance x direction together). Pass `min_duration=1` to any macro-layer regime for the raw label (`growth_level` accepts it too, default 1). Labels are now computed on
-   the full history and sliced to a requested `start`/`end` afterwards, so they don't depend on the window asked for. The existing
-   `VolRegime`, `RatesRegime` and `TrendRegime` (`src/backtest/regimes.py`) get no rule.
-
-Effect (label stability only; no returns were used): episodes 862 -> 62 (`policy`), 388 -> 33 (`financial_conditions`),
-1,282 -> 125 (`curve_dynamics`), 108 -> 26 (`dollar_trend`); median run 3.5 / 3.5 / 3.0 / 10 -> 216 / 123 / 83 / 182 business days;
-every label of every regime keeps at least 5 episodes; valid-from dates are unchanged. Known cost: slow labels miss fast events, for
-example `financial_conditions` is `tight` on 48% of the 2020 window (88% raw).
