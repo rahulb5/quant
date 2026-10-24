@@ -44,3 +44,6 @@ data/quant.db.bak-*
 # Irreplaceable data exports
 data/archive/
 *.parquet.bak
+
+# Active task scope (.claude/hooks/scope.py)
+.claude/scope.json

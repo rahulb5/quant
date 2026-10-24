@@ -1,7 +1,7 @@
 # Agentic workflow — skills, agents, orchestrators, guardrails
 
-**Status:** draft for researcher review (2026-10-24). Nothing below is built yet except the two
-existing skills (`notebook-to-signal`, `update-architecture`).
+**Status:** draft for researcher review (2026-10-24). F2–F4 resolved; F1 open. Phase A is built (see §8);
+phases B onward are not. The macro plan is at C0–C6, C8 and C10 done, so `/plan-step` starts at C7.
 **Read first:** `CLAUDE.md`, `quant_research_os_build_plan.md` §14–16, `docs/plans/macro_research_layer.md`.
 
 ## Goal
@@ -47,11 +47,13 @@ from stdin and exits 2 (block, with the reason sent back to Claude) when a call 
 
 | Rule | Blocks | Why |
 |---|---|---|
-| G1 frozen definitions | `Write`/`Edit` on `docs/research/*_v[0-9]*.md` (e.g. `macro_state_definitions_v1.md`). The **change log** section is the only exception | Definitions are frozen before results are seen; changing them means a new version file, made by the researcher |
+| G1 frozen definitions | `Write`/`Edit` on a `docs/research/*_v[0-9]*.md` whose `**Status:**` line says `FROZEN` (e.g. `macro_state_definitions_v1.md`); the **change log** section is the only exception. New files and DRAFT files can be written, but only the researcher sets `FROZEN` | Definitions are frozen before results are seen; changing them means a new version file, which Claude may draft and the researcher freezes |
 | G2 completed experiments | `Write`/`Edit` on `experiments/EXP-*/{results,robustness,diagnostics}.json`, `performance.parquet` and `config.yaml` once `status: complete` | Historical results are never edited (§16). Re-runs produce a new EXP id, or are explicitly requested |
-| G3 conclusions | Edits that set `conclusion:` in a `config.yaml`, or fill the `## Conclusion` / `## Economic Rationale` sections of a `research_note.md` | "The AI drafts; the researcher approves the conclusion" (§11) |
-| G4 destructive data ops | `Bash` matching `rm .*quant\.db`, `DROP TABLE`, `DELETE FROM (asset\|price\|macro_\|cot_)`, and `purge_*`/`migrate_*` scripts run without `--dry-run` | Raw data is never overwritten silently. One-off migrations (as with the COT fix) need explicit approval in the chat |
-| G5 language | `Write`/`Edit` whose text contains `approved`, `profitable` or `ready to trade` in `experiments/**` | §16: never call a strategy profitable without qualification |
+| G3 conclusions | Edits that set `conclusion:` in a `config.yaml`, or fill (or wipe) the `## Conclusion` / `## Economic Rationale` / `## Economic Interpretation` sections of a `research_note.md`; a new section holding only a `_TODO_` placeholder is fine | "The AI drafts; the researcher approves the conclusion" (§11) |
+| G4 destructive data ops (**asks**, doesn't block) | `Bash` that runs SQL (`python`/`duckdb`/`sqlite3`) with DROP/TRUNCATE/DELETE on `assets`, `prices`, `macro_*`, `cot_*`, `experiments` or `trials`; `rm` of the DB or its WAL (not `.bak-*` copies); force-push; *running* `purge_*`/`migrate_*`/`renumber_*` scripts without `--dry-run` | Raw data is never overwritten silently. The hook returns `permissionDecision: ask`, so the researcher approves or denies in the normal prompt |
+| G5 language | `Write`/`Edit` whose text contains `approved`, `profitable` or `ready to trade` in `experiments/**`, unless negated within two words ("not profitable", "not yet approved") | §16: never call a strategy profitable without qualification |
+| S1 scope | While `.claude/scope.json` exists (started by `/plan-step` via `.claude/hooks/scope.py start`): Write/Edit outside its file list. Shell writes are caught by a `PostToolUse` Bash hook (`scope.py check`, which compares `git status` with the list and a baseline of files already dirty) | `/plan-step` on 2026-10-24 grew from "apply D1" into a new module, web research and `pit.py` changes |
+| S2 scope owner | Claude editing `scope.json` or running `scope.py add`/`start` while a scope is active | Only the researcher widens a scope: `! python3 .claude/hooks/scope.py add <file>`, or edit the file |
 
 G2 and G3 can be overridden for a single call by the researcher (the hook's reason says how, e.g.
 `QUANT_ALLOW_RESULT_EDIT=1`). That way an override is deliberate rather than accidental.
@@ -102,7 +104,7 @@ author's assumptions.
 | Agent | Lens (build plan §13/§15 "research criticism") | Concrete checks in this repo |
 |---|---|---|
 | `bias-auditor` | Look-ahead, survivorship, leakage, PIT | `lag` and `release_date` alignment; whether macro inputs go through `pit.realtime()`; the `id < 100000` constituent filter and the survivorship caveat present; COT on `release_date`, not `report_date`; full-sample normalisation anywhere (expanding only) |
-| `overfit-auditor` | Data mining, multiple testing, instability | Ledger `n_trials(family)` vs declared count; deflated Sharpe; parameter-grid surface shape; half-sample and decade splits; walk-forward decay (C11); how many independent regime episodes sit behind each claim |
+| `overfit-auditor` | Data mining, multiple testing, instability | `trials.effective_n_trials(config)` (declared vs ledger, and which one won) and `trials_table(family)`: how many variants were tried and how their Sharpes are spread, not just the best one; a declared count far above the ledger count means notebook variants weren't logged with `log_trial()`; deflated Sharpe; parameter-grid surface shape; half-sample and decade splits; walk-forward decay (C11); how many independent regime episodes sit behind each claim |
 | `implementation-auditor` | Bugs, unrealistic costs, hidden exposure | Signal module vs notebook (same numbers on the same dates); turnover vs `cost_bps` breakeven; factor-regression betas (HAC t-stats) for hidden equity/dollar/commodity beta; return-series quality (EXP-0001's extreme tails) |
 
 Each returns findings as `{check, severity: KILL|FLAG|NOTE, evidence (file:line or number), suggested
@@ -198,13 +200,22 @@ experiments, or any portfolio or capital decision. Skills **ask** at these point
 
 ## 8. Build order
 
+**Phase A built 2026-10-24:** `.claude/hooks/guard.py` + `.claude/settings.json` (hook, deny list, read-only git
+allows), `tests/hooks/test_guard.py`, `.claude/agents/{spec-conformance,pit}-reviewer.md`,
+`.claude/skills/plan-step/`. Known behaviours of the hook: (a) the override variable is read from the hook's own
+environment or a `QUANT_ALLOW_RESULT_EDIT=1` prefix on a Bash command; Write/Edit calls can't carry it, so
+for those it must be set when Claude Code is launched. (b) G4 still matches command *text*, but only in
+commands that run SQL or execute a one-off script, so greps, diffs and commit messages pass; a false match costs
+a permission prompt, not a block. (Loosened 2026-10-24 after a probe found 9 legitimate calls blocked.) (c) Subagent "read-only" is enforced by the tool list (no Write/Edit) plus instructions; Bash itself
+cannot be sandboxed per agent.
+
 | Phase | Deliverable | Why first | Depends on |
 |---|---|---|---|
 | A | `guard.py` hook (G1–G5) + `settings.json` permissions | Every later component relies on it | — |
 | A | `/plan-step` + `spec-conformance-reviewer` + `pit-reviewer` | Immediately useful for C4–C13, which is the current work | — |
 | B | `bias-auditor`, `overfit-auditor`, `implementation-auditor` + `/review-experiment` | Can be tested today on EXP-0001/0002 (see the known weaknesses in the overview) | A |
-| B | `/run-experiment` | Removes manual stitching | Better after C10 (ledger) |
-| C | `/new-hypothesis` | First used for EXP-0003 (yield curve) | C10 |
+| B | `/run-experiment` | Removes manual stitching | C10 ✅ (`--family` is passed from the hypothesis file) |
+| C | `/new-hypothesis` | First used for EXP-0003 (yield curve) | C10 ✅ |
 | C | `/add-collector`, `data-auditor`, `/data-refresh` | Next collector (sector ETFs, roll data) | — |
 | D | `scripts/research.py` CLI, scheduled refresh, `/compare-experiments` | Worth it once there are more than 3 experiments | B |
 
@@ -215,9 +226,9 @@ agent prompts before trusting them on new work.
 
 ## 9. Open decisions for the researcher
 
-| # | Question | Default |
+| # | Question | Decision |
 |---|---|---|
-| F1 | Should critics run on the strongest model only, or a mix? | Strongest for the three critics; default for `data-auditor` |
-| F2 | G2 override mechanism: an environment variable, or the researcher edits by hand? | Environment variable, per call |
-| F3 | Hypothesis files under `docs/research/hypotheses/`, or inside the experiment folder? | `docs/research/hypotheses/` (one family → many experiments) |
-| F4 | Run phase B before or after C10 (trial ledger)? | Build the critics now; `overfit-auditor` falls back to the declared `n_trials` and flags it as unverified |
+| F1 | Which model each subagent runs on (the `model:` field in `.claude/agents/<name>.md`) | **Accepted 2026-10-24:** `opus` for the five reviewers/critics, `sonnet` for `data-auditor` |
+| F2 | G2 override mechanism | **Accepted 2026-10-24:** environment variable, per call |
+| F3 | Where hypothesis files live | **Accepted 2026-10-24:** `docs/research/hypotheses/<family>.md`, one family → many experiments; the file name is the ledger `family` |
+| F4 | Phase B before or after C10 | **Moot:** C10 landed in `ad25a59`. `overfit-auditor` reads the ledger directly |
