@@ -15,7 +15,7 @@ Usage:
         --frequency weekly --direction long_only --resample W-MON \\
         --date-column week_date --asset-column commodity \\
         --signal-column raw_pctile_52w --threshold 90 \\
-        --periods-per-year 52 --researcher rhlbh
+        --periods-per-year 52 --researcher rhlbh --family cot_commercial_positioning
 """
 
 import argparse
@@ -35,6 +35,7 @@ from src.experiments.config import (
     ExperimentConfig,
     PortfolioConfig,
     SignalConfig,
+    FAMILY_PATTERN,
     ValidationConfig,
     save_config,
 )
@@ -66,9 +67,15 @@ if __name__ == "__main__":
     parser.add_argument("--researcher", default=None)
     parser.add_argument("--holdout-start", default=None,
                         help="First date withheld from all analysis; default = one year before today")
+    parser.add_argument("--family", required=True,
+                        help="Trial-ledger family: the idea this experiment is one variant of, snake_case, "
+                             "e.g. growth_regime_001. Every variant tried for the idea shares it")
+    parser.add_argument("--family-version", default="v1", help="Bump when the family's definitions change")
     parser.add_argument("--n-trials", type=int, default=1,
                         help="Signal variants compared before settling on this one (for deflated Sharpe)")
     args = parser.parse_args()
+    if not FAMILY_PATTERN.match(args.family):
+        parser.error(f"--family {args.family!r} must be snake_case (lowercase letters, digits, underscores)")
 
     db.open()
     experiment_id = next_experiment_id()
@@ -96,6 +103,8 @@ if __name__ == "__main__":
         validation=ValidationConfig(
             holdout_start=args.holdout_start or (date.today() - timedelta(days=365)).isoformat(),
             n_trials=args.n_trials,
+            family=args.family,
+            family_version=args.family_version,
         ),
         status="draft",
         classification=ClassificationConfig(

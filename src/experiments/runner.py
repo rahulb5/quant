@@ -35,6 +35,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from src.backtest.backtest import BacktestReport, run_backtest
+from src.experiments import trials
 from src.experiments.config import ExperimentConfig, load_config, save_config
 from src.experiments.portfolio import decile_long_short, equal_weight_long_basket
 from src.experiments.registry import update_experiment
@@ -189,6 +190,20 @@ def _write_artifacts(config: ExperimentConfig, report: BacktestReport, experimen
     (experiment_dir / "research_note.md").write_text(note)
 
 
+def _log_trial(config: ExperimentConfig, report: BacktestReport) -> None:
+    """Record this configuration in the trial ledger (kind "experiment"), if it has a family."""
+    v = config.validation
+    if not v.family:
+        logger.warning(f"[run_experiment] {config.experiment_id}: validation.family is not set, "
+                       "so this trial is not in the ledger and n_trials rests on the declared value")
+        return
+    trials.log_trial(
+        v.family, trials.experiment_params(config), report.execution.net_returns,
+        kind="experiment", experiment_id=config.experiment_id, family_version=v.family_version,
+        periods_per_year=config.backtest.periods_per_year,
+    )
+
+
 def run_experiment(config_path: str) -> ExperimentResult:
     """Run one experiment end to end and write all artifacts next to its config.
 
@@ -219,6 +234,7 @@ def run_experiment(config_path: str) -> ExperimentResult:
             verbose=False,
         )
 
+        _log_trial(config, report)
         _write_artifacts(config, report, experiment_dir)
 
         metrics = report.performance.metrics()

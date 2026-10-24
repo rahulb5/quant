@@ -16,6 +16,7 @@ import pytest
 import data.repository as repository_module
 import src.experiments.registry as registry_module
 import src.experiments.runner as runner_module
+import src.experiments.trials as trials_module
 import src.experiments.universe as universe_module
 from data.repository import Asset, Price, insert_asset, insert_price
 from src.db.client import Database
@@ -41,6 +42,7 @@ def mem_db(monkeypatch) -> Database:
     monkeypatch.setattr(registry_module, "db", database)
     monkeypatch.setattr(universe_module, "db", database)
     monkeypatch.setattr(repository_module, "db", database)
+    monkeypatch.setattr(trials_module, "db", database)
     yield database
     database.close()
 
@@ -202,3 +204,47 @@ def test_run_experiment_respects_holdout_start(tmp_path, mem_db, monkeypatch):
 
     assert result.report.execution.net_returns.index.max() < pd.Timestamp(holdout)
     assert pd.Timestamp(load_config(str(config_path)).data_as_of) < pd.Timestamp(holdout)
+
+
+def _run_with_family(tmp_path, mem_db, monkeypatch, family, threshold=90):
+    _seed_commodity_prices(mem_db)
+    weekly_dates = CommodityUniverse().returns_panel(resample="W-MON").index
+    rows = []
+    for d in weekly_dates:
+        rows.append({"week_date": d, "commodity": "Crude Oil", "sig": 95})
+        rows.append({"week_date": d, "commodity": "Natural Gas", "sig": 10})
+    monkeypatch.setattr(runner_module, "_build_signal", lambda config: pd.DataFrame(rows))
+    config = ExperimentConfig(
+        experiment_id="EXP-0001", hypothesis="h", created_at="2026-10-04",
+        data=DataConfig(asset_class="commodity", resample="W-MON"),
+        signal=SignalConfig(module="unused.module", parameters={}),
+        portfolio=PortfolioConfig(rule="equal_weight_long_threshold", date_column="week_date",
+                                  asset_column="commodity", signal_column="sig", threshold=threshold),
+        backtest=BacktestConfig(cost_bps=1.0, lag=1, periods_per_year=52),
+        validation=ValidationConfig(family=family),
+    )
+    d = tmp_path / "EXP-0001"
+    d.mkdir(exist_ok=True)
+    path = d / "config.yaml"
+    save_config(config, str(path))
+    if get_experiment("EXP-0001") is None:
+        insert_experiment(ExperimentRecord(id="EXP-0001", hypothesis="h", signal_name="fake",
+                                           asset_class="commodity", config_path=str(path), created_at="2026-10-04"))
+    return run_experiment(str(path)), path
+
+
+def test_run_experiment_logs_trial_when_family_set_and_rerun_counts_once(tmp_path, mem_db, monkeypatch):
+    result, path = _run_with_family(tmp_path, mem_db, monkeypatch, "fam_a")
+    t = trials_module.trials_table("fam_a")
+    assert len(t) == 1 and t.iloc[0]["kind"] == "experiment" and t.iloc[0]["experiment_id"] == "EXP-0001"
+    assert t.iloc[0]["n_obs"] == len(result.report.execution.net_returns)
+    run_experiment(str(path))                                   # same config again
+    assert trials_module.n_trials("fam_a") == 1 and len(trials_module.trials_table("fam_a")) == 2
+    _run_with_family(tmp_path, mem_db, monkeypatch, "fam_a", threshold=80)   # a different setting
+    assert trials_module.n_trials("fam_a") == 2
+
+
+def test_run_experiment_without_family_logs_nothing_and_still_completes(tmp_path, mem_db, monkeypatch):
+    _run_with_family(tmp_path, mem_db, monkeypatch, None)
+    assert mem_db.query("SELECT COUNT(*) AS n FROM trials")[0]["n"] == 0
+    assert get_experiment("EXP-0001")["status"] == "complete"

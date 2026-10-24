@@ -16,6 +16,7 @@ import pytest
 
 import data.repository as repository_module
 import src.experiments.registry as registry_module
+import src.experiments.trials as trials_module
 import src.experiments.universe as universe_module
 from data.repository import Asset, Price, insert_asset, insert_price
 from src.db.client import Database
@@ -169,6 +170,7 @@ def mem_db(monkeypatch) -> Database:
     monkeypatch.setattr(registry_module, "db", database)
     monkeypatch.setattr(universe_module, "db", database)
     monkeypatch.setattr(repository_module, "db", database)
+    monkeypatch.setattr(trials_module, "db", database)
     yield database
     database.close()
 
@@ -271,3 +273,39 @@ def test_runner_apply_holdout_truncates_both_panels():
     assert w2.index.max() == pd.Timestamp("2024-01-07") and r2.index.max() == pd.Timestamp("2024-01-07")
     w3, r3 = runner_module._apply_holdout(w, r, None)
     assert len(w3) == 10 and len(r3) == 10
+
+
+# ── trial ledger ──────────────────────────────────────────────────────────────
+
+def test_run_robustness_logs_base_and_grid_and_uses_larger_count(tmp_path, mem_db, monkeypatch):
+    rc = RobustnessConfig(param_grid={"portfolio.threshold": [50, 70, 90]}, n_boot=50)
+    for w in range(6):   # six notebook variants already in the ledger
+        trials_module.log_trial("fam_a", {"w": w}, pd.Series(np.random.default_rng(w).normal(0.001, 0.01, 100)))
+    config_path, experiment_dir = _setup_experiment(
+        tmp_path, monkeypatch, robustness=rc, validation=ValidationConfig(n_trials=4, family="fam_a"))
+
+    saved = rb.run_robustness(str(config_path)).results
+
+    t = trials_module.trials_table("fam_a")
+    assert (t["kind"] == "robustness").sum() == 3 and (t["kind"] == "experiment").sum() == 1
+    assert trials_module.n_trials("fam_a") == 7                      # 6 notebook + base; grid not counted
+    assert saved["n_trials_ledger"] == 7 and saved["n_trials_declared"] == 4 and saved["n_trials"] == 7
+    assert saved["checks"]["statistical"]["detail"]["n_trials"] == 7
+    note = (experiment_dir / "research_note.md").read_text()
+    assert "declared 4, ledger 7, used 7" in note and "log_trial()" in note
+
+
+def test_declared_n_trials_can_only_raise_the_count(tmp_path, mem_db, monkeypatch):
+    config_path, _ = _setup_experiment(
+        tmp_path, monkeypatch, robustness=RobustnessConfig(n_boot=50),
+        validation=ValidationConfig(n_trials=96, family="fam_a"))
+    saved = rb.run_robustness(str(config_path)).results
+    assert saved["n_trials"] == 96 and saved["n_trials_ledger"] == 1
+
+
+def test_robustness_without_family_uses_declared_and_says_so(tmp_path, mem_db, monkeypatch):
+    config_path, experiment_dir = _setup_experiment(tmp_path, monkeypatch, robustness=RobustnessConfig(n_boot=50))
+    saved = rb.run_robustness(str(config_path)).results
+    assert saved["n_trials"] == 4 and saved["n_trials_ledger"] == 0 and saved["family"] is None
+    assert mem_db.query("SELECT COUNT(*) AS n FROM trials")[0]["n"] == 0
+    assert "no ledger family is set" in (experiment_dir / "research_note.md").read_text()

@@ -58,12 +58,25 @@ def _fmt(value: Any, spec: str = ".3f") -> str:
     return "n/a" if value is None else format(value, spec)
 
 
+def _trials_line(robustness: dict[str, Any]) -> str:
+    family = robustness.get("family")
+    if not family:
+        return (f"Trials: declared {robustness['n_trials']}; no ledger family is set, so the count rests on the "
+                "declared value.")
+    return (f"Trials in family `{family}`: declared {robustness.get('n_trials_declared')}, ledger "
+            f"{robustness.get('n_trials_ledger')}, used {robustness['n_trials']} (the larger). The ledger counts "
+            "distinct experiment and logged-notebook configurations; notebook variants are counted only if "
+            "`log_trial()` was called for them.")
+
+
 def render_robustness_section(robustness: dict[str, Any]) -> str:
     """Render the body of the note's Robustness section from a robustness.json dict."""
     lines = [
         f"**Overall: {robustness['overall']}** (generated {robustness['generated_at']}, "
         f"code `{(robustness.get('git_sha') or 'unknown')[:8]}`, n_trials={robustness['n_trials']}). "
         "Verdicts are mechanical; approval remains a researcher decision.",
+        "",
+        _trials_line(robustness),
         "",
         "| Check | Verdict | Reason |",
         "|---|---|---|",

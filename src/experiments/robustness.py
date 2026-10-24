@@ -40,7 +40,7 @@ import pandas as pd
 from src.backtest import stats
 from src.backtest.execution import apply_costs
 from src.backtest.metrics import sharpe_ratio
-from src.experiments import runner
+from src.experiments import runner, trials
 from src.experiments.config import ExperimentConfig, RobustnessConfig, load_config
 from src.experiments.registry import update_experiment
 from src.experiments.report import render_robustness_section, replace_robustness_section
@@ -257,7 +257,8 @@ def check_parameters(
             weights = runner._build_weights(cfg, runner._compute_signal(cfg, signal_data))
             weights, returns = runner._apply_holdout(weights, asset_returns, config.validation.holdout_start)
             net = apply_costs(weights, returns, cfg.backtest.cost_bps, cfg.backtest.lag).net_returns
-            rows.append({"params": params, "sharpe": _sharpe(net, cfg.backtest.periods_per_year)})
+            rows.append({"params": params, "sharpe": _sharpe(net, cfg.backtest.periods_per_year),
+                         "n_obs": len(net)})
         except Exception as exc:
             logger.warning(f"[robustness] param combo {params} failed: {exc}")
             failures.append({"params": params, "error": str(exc)})
@@ -382,13 +383,20 @@ def run_robustness(config_path: str, unlock_holdout: bool = False) -> Robustness
         raise ValueError(f"{config.experiment_id}: no overlapping dates between weights and returns")
     net = base.net_returns
 
+    family = config.validation.family
+    if family:   # the base configuration is a trial too, even if run_experiment() never logged it
+        trials.log_trial(family, trials.experiment_params(config), net, kind="experiment",
+                         experiment_id=config.experiment_id, family_version=config.validation.family_version,
+                         periods_per_year=ppy)
+    n_used, n_declared, n_ledger = trials.effective_n_trials(config)
+
     checks = {
         "cost_stress": check_cost_stress(base.gross_returns, base.turnover, bt.cost_bps, ppy, rc),
         "lag_sensitivity": check_lag_sensitivity(weights, asset_returns, bt.lag, bt.cost_bps, ppy, rc),
         "outliers": check_outliers(net, ppy, rc),
         "subperiods": check_subperiods(net, ppy, rc),
         "parameters": check_parameters(config, signal_data, returns_full),
-        "statistical": check_statistical(net, ppy, config.validation.n_trials, rc),
+        "statistical": check_statistical(net, ppy, n_used, rc),
         "holdout": check_holdout(
             config, apply_costs(weights_full, returns_full, bt.cost_bps, bt.lag).net_returns,
             unlock_holdout, experiment_dir,
@@ -396,11 +404,22 @@ def run_robustness(config_path: str, unlock_holdout: bool = False) -> Robustness
     }
     overall = "KILLED" if any(c.verdict == KILL for c in checks.values()) else "NEEDS_REVIEW"
 
+    if family:   # robustness-grid variants are recorded but do not count towards n_trials (E4)
+        for row in checks["parameters"].detail.get("grid", []):
+            trials.record_trial(
+                family, trials.experiment_params(_with_overrides(config, row["params"])),
+                row["sharpe"], row.get("n_obs"), kind="robustness", experiment_id=config.experiment_id,
+                family_version=config.validation.family_version,
+            )
+
     results = runner._to_jsonable({
         "experiment_id": config.experiment_id,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "git_sha": runner._git_sha(),
-        "n_trials": config.validation.n_trials,
+        "n_trials": n_used,
+        "n_trials_declared": n_declared,
+        "n_trials_ledger": n_ledger,
+        "family": family,
         "holdout_start": holdout_start,
         "in_sample_end": str(net.index.max()),
         "n_obs": len(net),

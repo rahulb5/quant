@@ -14,6 +14,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -83,11 +84,29 @@ class BacktestConfig:
     periods_per_year: int = 252
 
 
+FAMILY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
 @dataclass
 class ValidationConfig:
+    """`family` names the group of variants this experiment was chosen from (e.g.
+    `growth_regime_001`); the trial ledger (src/experiments/trials.py) counts trials per
+    family. Required for new experiments (scripts/new_experiment.py); optional here so
+    older configs still load, and then nothing is logged. `n_trials` is the researcher's
+    declared count; the deflated Sharpe uses max(n_trials, ledger count)."""
+
     methodology: str = ""
     holdout_start: str | None = None
     n_trials: int = 1
+    family: str | None = None
+    family_version: str = "v1"
+
+    def __post_init__(self) -> None:
+        if self.family is not None and not FAMILY_PATTERN.match(self.family):
+            raise ValueError(
+                f"validation.family={self.family!r} must be snake_case "
+                "(lowercase letters, digits, underscores; starting with a letter)"
+            )
 
 
 @dataclass

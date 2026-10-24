@@ -224,4 +224,25 @@ MIGRATIONS: list[Migration] = [
         ALTER TABLE experiments ADD COLUMN market TEXT;
         """,
     ),
+    Migration(
+        version=11,
+        description="Create trials ledger table",
+        sql="""
+        CREATE SEQUENCE IF NOT EXISTS trials_id_seq;
+        CREATE TABLE IF NOT EXISTS trials (
+            id              BIGINT  PRIMARY KEY DEFAULT nextval('trials_id_seq'),
+            family          TEXT    NOT NULL,
+            family_version  TEXT    NOT NULL DEFAULT 'v1',
+            kind            TEXT    NOT NULL CHECK (kind IN ('experiment', 'notebook', 'robustness')),
+            experiment_id   TEXT,
+            config_hash     TEXT    NOT NULL,
+            params          TEXT    NOT NULL,
+            sharpe          DOUBLE,
+            n_obs           INTEGER,
+            git_sha         TEXT,
+            created_at      TIMESTAMP NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_trials_family ON trials (family, kind);
+        """,
+    ),
 ]

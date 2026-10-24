@@ -523,6 +523,25 @@ twenty specifications costs almost nothing.
 - **Limitation:** notebook variants are counted only if `log_trial()` is called. The research note
   says so.
 
+**C10 outcome (2026-10-24).** Migration v11 (`trials` table: `id`, `family`, `family_version`, `kind`,
+`experiment_id`, `config_hash`, `params`, `sharpe`, `n_obs`, `git_sha`, `created_at`); `src/experiments/trials.py`
+(`log_trial`, `record_trial`, `n_trials`, `effective_n_trials`, `experiment_params`, `config_hash`,
+`trials_table`); `ValidationConfig.family` and `family_version` (snake_case checked; optional so old
+configs load); `scripts/new_experiment.py --family` (required); `scripts/trials.py count|list|families`.
+`run_experiment()` logs a `kind="experiment"` row and `run_robustness()` logs the base config plus each grid
+point as `kind="robustness"`. `check_statistical()` now gets `max(declared, ledger)`; `robustness.json` carries
+`n_trials`, `n_trials_declared`, `n_trials_ledger` and `family`, and the research note prints all three and
+the notebook limitation. 21 tests (589 in the suite pass).
+
+Details worth knowing:
+- A trial's identity is the hash of its data, signal, portfolio and backtest settings; validation and
+  robustness settings, status and hypothesis text are excluded, so re-running or re-wording doesn't create a
+  new trial, and `90` equals `90.0`.
+- `n_trials(family)` spans all `family_version`s by default (re-versioning a definition does not make earlier
+  selection disappear); pass a version to filter.
+- Without a `family`, nothing is logged, a warning is printed, and the count rests on the declared value.
+- EXP-0001 and EXP-0002 have no `family` yet, so their re-runs in C9 won't be logged until one is set.
+
 ## C11. Walk-forward check (`src/experiments/robustness.py`)
 
 A new check, `walk_forward`, built on the existing parameter-grid machinery:
