@@ -35,7 +35,7 @@ def test_credit_and_dollar_definitions():
     c = market.credit(inp, IDX)
     assert c["bbb_minus_ig"].iloc[50] == pytest.approx(inp["BAMLC0A4CBBB"].iloc[50] - inp["BAMLC0A0CM"].iloc[50])
     n = market.CHANGE_WINDOW
-    assert n == 126
+    assert n == 63
     assert c["d_hy_oas"].iloc[200] == pytest.approx(inp["BAMLH0A0HYM2"].iloc[200] - inp["BAMLH0A0HYM2"].iloc[200 - n])
     d = market.dollar(inp, IDX)
     assert d["usd_gap"].iloc[:199].isna().all() and d["usd_gap"].iloc[199:].notna().all()
@@ -98,7 +98,7 @@ def test_truncation_invariance():
     full = market.market_state(inp, IDX).loc[:cut]
     trunc_in = {k: v[v.index <= cut] for k, v in inp.items()}
     trunc = market.market_state(trunc_in, IDX[IDX <= cut])
-    pd.testing.assert_frame_equal(full.drop(columns=["growth_pricing_n"]), trunc.drop(columns=["growth_pricing_n"]), check_dtype=False)
+    pd.testing.assert_frame_equal(full, trunc, check_dtype=False)
 
 
 def test_loaders(tmp_path):

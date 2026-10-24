@@ -180,18 +180,14 @@ def vintage(d: dict) -> None:
     print("\n### Real-time vs latest-vintage state (per component, common non-NaN days) ###")
     print(md(val.column_correlations(rt[cols], lv[cols]), "{:.3f}"))
     print("\n### Share of days the regime label differs: real-time vs latest-vintage ###")
-    lab_rt = {
-        "growth_inflation": rg.growth_inflation_labels(rt["G_impulse"], rt["pi_impulse"]),
-        "growth_level": rg.growth_level_labels(rt["G_level"]),
-        "policy": rg.policy_labels(rt["P_stance"], rt["P_impulse"]),
-        "financial_conditions": rg.financial_conditions_labels(rt["FC"]),
-    }
-    lab_lv = {
-        "growth_inflation": rg.growth_inflation_labels(lv["G_impulse"], lv["pi_impulse"]),
-        "growth_level": rg.growth_level_labels(lv["G_level"]),
-        "policy": rg.policy_labels(lv["P_stance"], lv["P_impulse"]),
-        "financial_conditions": rg.financial_conditions_labels(lv["FC"]),
-    }
+    def build(s):   # the labels experiments see: label rule plus the min_duration rule
+        return {
+            "growth_inflation": rg.growth_inflation_labels(s["G_impulse"], s["pi_impulse"]),
+            "growth_level": rg.growth_level_labels(s["G_level"]),
+            "policy": rg.min_duration_labels(rg.policy_labels(s["P_stance"], s["P_impulse"]), rg.MIN_DURATION),
+            "financial_conditions": rg.min_duration_labels(rg.financial_conditions_labels(s["FC"]), rg.MIN_DURATION),
+        }
+    lab_rt, lab_lv = build(rt), build(lv)
     rows = {}
     for k in lab_rt:
         share, n = val.label_disagreement(lab_rt[k], lab_lv[k])
@@ -348,18 +344,22 @@ def truncation(d: dict, cuts=("2012-12-31", "2019-12-31")) -> None:
 def stability(d: dict) -> None:
     """What the (causal) min_duration rule does to episode counts and lengths. Label stability only;
     no returns are involved."""
-    from src.macro.regimes import min_duration_labels
+    from src.macro import regimes as rg
 
-    print("\n### Effect of min_duration on episode length (label stability only) ###")
+    f = d["frame"]
+    raw_labels = {
+        "growth_inflation": rg.growth_inflation_labels(f["G_impulse"], f["pi_impulse"], min_duration=1),
+        "growth_level": rg.growth_level_labels(f["G_level"]),
+        "policy": rg.policy_labels(f["P_stance"], f["P_impulse"]),
+        "financial_conditions": rg.financial_conditions_labels(f["FC"]),
+        "curve_dynamics": f["curve_state"].astype(object),
+        "dollar_trend": f["usd_state"].astype(object),
+    }
+    print("\n### Effect of min_duration on episode length (label stability only; 21 is what is applied) ###")
     rows = {}
-    for name in ("growth_inflation", "growth_level", "policy", "financial_conditions", "curve_dynamics", "dollar_trend"):
-        raw = d["labels"][name]
-        if name == "growth_inflation":
-            from src.macro.regimes import growth_inflation_labels
-            f = d["frame"]
-            raw = growth_inflation_labels(f["G_impulse"], f["pi_impulse"], min_duration=1)
+    for name, raw in raw_labels.items():
         for md_ in (1, 21, 63):
-            lab = min_duration_labels(raw, md_)
+            lab = rg.min_duration_labels(raw, md_)
             ep = val.episodes(lab)
             smry = val.episode_summary(lab)
             rows[(name, md_)] = {"episodes": len(ep), "median_days": ep["n_days"].median(), "mean_days": ep["n_days"].mean(),
@@ -368,7 +368,10 @@ def stability(d: dict) -> None:
     df = pd.DataFrame(rows).T
     df.index = [f"{a} / {b}" for a, b in df.index]
     print(md(df, "{:.1f}"))
-    print("\n(min_duration lags every regime change by that many business days.)")
+    applied = {"growth_inflation": 21, "growth_level": 1, "policy": 21, "financial_conditions": 21, "curve_dynamics": 21, "dollar_trend": 21}
+    ok = {k: bool(d["labels"][k].dropna().equals(rg.min_duration_labels(raw_labels[k], v).dropna())) for k, v in applied.items()}
+    print("\nstored labels equal raw labels with the rule applied:", ok)
+    print("\n(A change takes effect on the label's Nth consecutive day, so min_duration N lags it by N-1 business days.)")
 
 
 # ── Figures (single-axis panels, thin marks, validated categorical slots 1-4, light surface) ──

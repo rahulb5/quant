@@ -213,3 +213,115 @@ def test_sahm_crosscheck_reports_differences():
     assert x["diff"]["2000-02-10"] == pytest.approx(0.0) and x["diff"]["2000-03-10"] == pytest.approx(0.15)
     assert not x["flag_disagree"]["2000-02-10"] and x["flag_disagree"]["2000-03-10"]
     assert fl.sahm_crosscheck(None, b, idx)["diff"].isna().all()
+
+
+# ── D1: min_duration on every regime except growth_level ──────────────────────
+
+def _raw_labels(name, f):
+    if name == "policy":
+        return rg.policy_labels(f["P_stance"], f["P_impulse"])
+    if name == "financial_conditions":
+        return rg.financial_conditions_labels(f["FC"])
+    return f["curve_state" if name == "curve_dynamics" else "usd_state"].astype(object)
+
+
+@pytest.mark.parametrize("name", ["policy", "financial_conditions", "curve_dynamics", "dollar_trend"])
+def test_min_duration_21_is_the_default_and_min_duration_1_gives_raw(name):
+    from src.macro.validation import episodes
+    panel = _panel(seed=4)
+    cls = rg.REGIME_REGISTRY[name]
+    raw = _raw_labels(name, panel.frame)
+    assert rg.MIN_DURATION == 21
+    pd.testing.assert_series_equal(cls(panel=panel, min_duration=1).labels(), raw, check_names=False)
+    ruled = cls(panel=panel).labels()
+    pd.testing.assert_series_equal(ruled, rg.min_duration_labels(raw, 21), check_names=False)
+    assert len(episodes(ruled)) < len(episodes(raw))
+    # after the first run, every episode is at least 21 business days long
+    ep = episodes(ruled)
+    assert (ep["n_days"].iloc[1:-1] >= 21).all()
+
+
+def test_growth_level_has_no_rule_by_default_and_growth_inflation_keeps_21():
+    panel = _panel(seed=4)
+    gi = rg.GrowthInflationRegime(panel=panel)
+    assert gi._min_duration == 21
+    raw = rg.growth_level_labels(panel.frame["G_level"])
+    pd.testing.assert_series_equal(rg.GrowthLevelRegime(panel=panel).labels(), raw, check_names=False)
+
+
+def test_rule_takes_effect_on_the_21st_consecutive_day_i_e_20_days_after_the_raw_change():
+    idx = pd.bdate_range("2000-01-03", periods=200)
+    f = pd.DataFrame({"usd_state": ["strong_usd"] * 100 + ["weak_usd"] * 100}, index=idx)
+    out = rg.DollarTrendRegime(panel=rg.StatePanel.from_frame(f)).labels()
+    assert out.iloc[119] == "strong_usd" and out.iloc[120] == "weak_usd"      # raw switched at 100 (day 1 of the run); the run's 21st day is index 120
+
+
+# ── reviewer-requested tests (C6 amendment review) ────────────────────────────
+
+def test_growth_level_accepts_min_duration_and_everything_accepts_1_for_raw():
+    panel = _panel(seed=4)
+    raw = rg.growth_level_labels(panel.frame["G_level"])
+    pd.testing.assert_series_equal(rg.GrowthLevelRegime(panel=panel, min_duration=1).labels(), raw, check_names=False)
+    from src.macro.validation import episodes
+    assert len(episodes(rg.GrowthLevelRegime(panel=panel, min_duration=21).labels())) <= len(episodes(raw))
+    for name in rg.MACRO_REGIME_NAMES:
+        rg.REGIME_REGISTRY[name](panel=panel, min_duration=1).labels()
+
+
+def test_min_duration_is_truncation_invariant_with_switches():
+    """Random runs of 5-45 days so labels really switch under the rule, and every cut is tried."""
+    rng = np.random.default_rng(7)
+    runs = np.repeat(rng.choice(["a", "b", "c"], size=100), rng.integers(5, 45, size=100))[:1500]
+    raw = pd.Series(runs, index=pd.bdate_range("2000-01-03", periods=len(runs)), dtype=object)
+    raw.iloc[700:705] = np.nan
+    full = rg.min_duration_labels(raw, 21)
+    v = full.dropna()
+    assert (v != v.shift()).iloc[1:].sum() >= 10
+    for k in range(1, len(raw) + 1, 7):
+        pd.testing.assert_series_equal(rg.min_duration_labels(raw.iloc[:k], 21), full.iloc[:k])
+
+
+def _persistent_panel(seed=0):
+    f = _panel(seed).frame.copy()
+    rng = np.random.default_rng(seed + 100)
+
+    def runs(labels):
+        return np.repeat(rng.choice(labels, size=len(f)), rng.integers(5, 60, size=len(f)))[:len(f)]
+    f["curve_state"] = runs(["bull_steepener", "bear_steepener", "bull_flattener", "bear_flattener"])
+    f["usd_state"] = runs(["strong_usd", "weak_usd"])
+    return rg.StatePanel.from_frame(f)
+
+
+def test_regime_labels_truncation_invariant_at_every_switch():
+    panel = _persistent_panel()
+    for name in rg.MACRO_REGIME_NAMES:
+        full = rg.REGIME_REGISTRY[name](panel=panel).labels()
+        v = full.dropna()
+        sw = v.index[(v != v.shift()).to_numpy()][1:]
+        assert len(sw) >= 5, name
+        cuts = sorted({d for s in sw for d in full.index[max(0, full.index.get_loc(s) - 25): full.index.get_loc(s) + 1]})
+        for cut in cuts[::3]:
+            short = rg.REGIME_REGISTRY[name](panel=rg.StatePanel.from_frame(panel.frame.loc[:cut])).labels()
+            pd.testing.assert_series_equal(full.loc[:cut], short, check_names=False)
+
+
+def test_labels_do_not_depend_on_the_requested_start_date():
+    panel = _persistent_panel(seed=2)
+    for name in rg.MACRO_REGIME_NAMES:
+        full = rg.REGIME_REGISTRY[name](panel=panel).labels()
+        cut = rg.REGIME_REGISTRY[name](panel=panel, start="2004-01-01", end="2010-12-31").labels()
+        pd.testing.assert_series_equal(cut, full.loc["2004-01-01":"2010-12-31"], check_names=False)
+    names = [r.name for r in rg.macro_regimes(panel=panel, start="2004-01-01", end="2010-12-31")]
+    assert names == rg.MACRO_REGIME_NAMES
+    assert rg.macro_regimes(panel=panel, start="2004-01-01")[0].labels().index[0] >= pd.Timestamp("2004-01-01")
+
+
+def test_event_flags_are_truncation_invariant():
+    panel = _panel(seed=3)
+    f = panel.frame
+    sahm = pd.Series(np.random.default_rng(5).normal(0.3, 0.3, 270), index=pd.date_range("1990-02-05", periods=270, freq="MS") + pd.Timedelta(days=4))
+    t10 = pd.Series(np.random.default_rng(6).normal(0, 1, len(IDX)), index=IDX)
+    cut = IDX[3000]
+    full = fl.event_flags(f, {"sahm": sahm, "t10y3m": t10}, IDX)
+    trunc = fl.event_flags(f.loc[:cut], {"sahm": sahm[sahm.index <= cut], "t10y3m": t10[:cut]}, IDX[IDX <= cut])
+    pd.testing.assert_frame_equal(full.loc[:cut], trunc)

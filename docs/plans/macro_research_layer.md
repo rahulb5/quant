@@ -1,6 +1,6 @@
 # Macro research layer — implementation plan (blended)
 
-**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0 done 2026-10-22** (see "C0 outcome"); C0–C3 done; C4 (rates) next.
+**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0–C6, C8 and C10 done** (see the outcome blocks; C6 amended 2026-10-24, family v2 drafted in `docs/research/macro_state_definitions_v2.md`, awaiting the researcher's freeze). **Next:** C7 (analysis), C9, C11, C12.
 Replaces Part B of `docs/plans/cot_fix_and_macro_regimes.md`. Part A there (the COT fix) is complete
 and is a prerequisite.
 **Inputs:** the original Part B, and `docs/Macro Research Layer — Design Review.md`. Where they
@@ -365,7 +365,7 @@ A first-class module, not part of "curve dynamics".
 `src/macro/inputs.py` (13 daily FRED codes); 10 tests. Definitions follow spec section 2 unchanged.
 Notes: `THREEFYTP10` is vintaged from 2016-05 only, so under E2 "drop" the term premium starts
 there (`latest_lagged` for exploration). 10Y decomposition residual max 2 bp (rounding). Live values on
-2026-10-23: 10Y 4.96 = real 2.64 + BE 2.34 (3-month move +35 bp, two-thirds real; measured at the original 63-day window, which later became 126 days), curve `bear_flattener`,
+2026-10-23: 10Y 4.96 = real 2.64 + BE 2.34 (3-month move +35 bp, two-thirds real; 63-day window), curve `bear_flattener`,
 T10Y2Y +0.31, DGS2-DFF +0.77.
 
 ## C5. Market state and positioning (`src/macro/market.py`)
@@ -433,17 +433,16 @@ can group them.
 pass); the six regimes run through the real `Conditioner.by_regime()`. The existing `VolRegime`,
 `RatesRegime` and `TrendRegime` got `layer = "market"`. Valid from, and label switches over each history:
 
-| Regime | Valid from | Switches | Latest (2026-10-23) |
+| Regime | Valid from | Episodes at C6 (raw) -> now (D1 applied, family v2) | Latest (2026-10-23, D1 applied) |
 |---|---|---|---|
-| `growth_inflation` | 1960-04 | 159 | goldilocks |
-| `growth_level` | 1960-04 | 25 | above_trend |
-| `policy` | 1963-02 | 862 | restrictive_easing |
-| `financial_conditions` | 2002-10 | 388 | normal |
-| `curve_dynamics` | 1976-11 | 816 (1,282 at the original 63-day window) | bear_flattener |
-| `dollar_trend` | 2006-10 (approximate before 2019-02) | 108 | strong_usd |
+| `growth_inflation` | 1960-04 | 159 (21-day rule from the start) | goldilocks |
+| `growth_level` | 1960-04 | 25 (no rule) | above_trend |
+| `policy` | 1963-02 | 862 -> 62 | restrictive_easing |
+| `financial_conditions` | 2002-10 | 388 -> 33 | loose |
+| `curve_dynamics` | 1976-08 | 1,282 -> 125 | bear_flattener |
+| `dollar_trend` | 2006-10 (approximate before 2019-02) | 108 -> 26 | strong_usd |
 
-For C8: `policy` and `curve_dynamics` flip often (a sign flip of `P_stance` or a 63-day change near zero),
-so check episode lengths before reading their tables. Sahm check: our real-time value vs FRED's
+C8 found `policy`, `financial_conditions`, `curve_dynamics` and `dollar_trend` flipping every 3-10 days, which led to the 21-day rule on all four (see "C6 amendment outcome"). Sahm check: our real-time value vs FRED's
 `SAHMREALTIME` differs by 0.018 pp on average (max 0.87), and the two flags disagree on 101 of 17,379
 days (release timing). The flag fires in every NBER recession since 1960 and once outside one (2024-08).
 The spec's `on_hold` category from the plan is not implemented: the frozen spec has four policy labels.
@@ -498,19 +497,28 @@ Done once, before C9.
 `docs/research/macro_state_v1/`. No asset returns used. Headlines: the growth state, Sahm flag, `FC` and `CS`
 track recessions and stress episodes; real-time vs latest-vintage labels differ on 7.0% of days for
 `growth_inflation`; the real-time build is bit-identical under truncation at 2012 and 2019; no regimes overlap
-(max Cramér's V 0.54). **Findings that need a decision:** (D1) `policy`, `financial_conditions` and
-`curve_dynamics` flip every 3-4 days (median episode), so they are not usable as defined; a 21-day
-`min_duration` would give 62 / 33 / 125 episodes with every label still at 5+ episodes; (D2, decided and applied 2026-10-24) continuing claims
+(max Cramér's V 0.54). **Findings (both decided 2026-10-24):** (D1, applied) `policy`, `financial_conditions`, `curve_dynamics` and
+`dollar_trend` flipped every 3-10 days (median episode), so they were not usable as defined; the 21-day
+`min_duration` now gives 62 / 33 / 125 / 26 episodes with every label at 7+ episodes (see "C6 amendment outcome"); (D2, decided and applied 2026-10-24) continuing claims
 (`CCSA`) is revised about 2% in level after 56 days, so it moved from `UNREVISED_SERIES` to `PRE_VINTAGE_LATEST_LAGGED` (lag 19), the dollar treatment; no regime changed. Also reported:
 SLOOS was restated in 2019-11, policy stance reads "accommodative" through 2009-2022 (negative real rates), and
-fixed release lags were exceeded in 2025 (shutdown). **Checkpoint: researcher reads it and decides D1 before
+fixed release lags were exceeded in 2025 (shutdown). **Checkpoint: researcher reads it; D1 and D2 are decided, and saving the v2 definitions file is the researcher's, before
 C7 and C9.**
 
-**Change window (2026-10-24, researcher decision).** Every 63-business-day change in the macro layer (`FC_impulse`, the rates
-module, the market pricing variables, the curve state) became 126 business days via `state.CHANGE_WINDOW`: J4 said
-"6 months (63 business days)", which contradicted itself. `curve_dynamics` episodes 1,282 -> 816 (median run still 3 days);
-no other regime changed. Logged in the spec's change log; it needs `macro_state_definitions_v2.md` (researcher) and ledger
-`family_version` v2. Live-value notes in the C4 and C5 outcomes above were measured at 63 days.
+**Change window (2026-10-24, researcher decision), reverted.** A 126-day change window for every market-style change was
+tried (`state.CHANGE_WINDOW`) and reverted the same day: `curve_dynamics` episodes fell 1,282 -> 816 but the median run stayed at
+3 days. `CHANGE_WINDOW = 63` again, kept as one constant. The J4 wording slip is recorded in the spec's change log.
+
+### C6 amendment outcome (2026-10-24): D1 applied, window back to 63
+
+Researcher decision after C8. `min_duration = 21` business days now applies to `policy`, `financial_conditions`, `curve_dynamics` and
+`dollar_trend` (`regimes.MIN_DURATION`; `min_duration=1` gives raw labels), as well as `growth_inflation`; `growth_level` has none. It is
+causal and is applied to the final label. Episodes 862 / 388 / 1,282 / 108 -> 62 / 33 / 125 / 26; every label keeps at least 7
+episodes (fewest: `financial_conditions` loose 7, `policy` accommodative_tightening 11); valid-from dates unchanged. Cost: slow labels
+miss fast events (`financial_conditions` is tight on 48% of the 2020-02-01 to 04-30 recession window, 88% raw (76% vs 97% for 2020-02-15 to 06-30)). Tests: 6 new in `tests/macro/test_regimes.py`
+(defaults, raw via `min_duration=1`, exact 21-day delay, `growth_level` untouched; the existing truncation-invariance test covers all
+six regimes with the rule); suite 643 passed (the same change also made labels independent of the requested `start`/`end`, and `GrowthLevelRegime` accepts `min_duration`, default 1). This changes definitions, so it is family `v2`: both amendments are in the v1 change log
+and the draft is `docs/research/macro_state_definitions_v2.md` (status DRAFT; only the researcher sets it FROZEN). `docs/research/macro_state_validation.md` is updated to the v2 numbers.
 
 ## C9. Experiment integration
 

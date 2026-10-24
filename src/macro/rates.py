@@ -6,7 +6,7 @@ daily series built by src.macro.inputs.load_rates_inputs. Definitions are frozen
 in docs/research/macro_state_definitions_v1.md section 2.
 
 All series are forward-filled onto a business-day grid; changes are over
-CHANGE_WINDOW = 126 business days (~6 months). Yields are in percent, so 10 bp = 0.10.
+CHANGE_WINDOW = 63 business days (~3 months). Yields are in percent, so 10 bp = 0.10.
 
 Usage:
     inputs = load_rates_inputs(ro)
@@ -21,8 +21,8 @@ import numpy as np
 import pandas as pd
 
 from src.macro.pit import to_daily
+from src.macro.state import CHANGE_WINDOW
 
-CHANGE_WINDOW = 126
 ATTRIBUTION_MIN_MOVE = 0.10     # percent: shares only reported when |d_nominal| exceeds this
 PROXY_DURATION = 8.5            # constant modified duration of the Treasury proxy, years
 PROXY_DAYS = 252
@@ -74,7 +74,7 @@ def term_premium(inputs: dict[str, pd.Series], index: pd.DatetimeIndex, window: 
 
 
 def curve(inputs: dict[str, pd.Series], index: pd.DatetimeIndex, window: int = CHANGE_WINDOW) -> pd.DataFrame:
-    """Curve levels, 6-month changes and the bull/bear steepener/flattener state.
+    """Curve levels, 3-month changes and the bull/bear steepener/flattener state.
 
     bull/bear = d_DGS10 < 0 / >= 0; steepener/flattener = d_T10Y2Y >= 0 / < 0.
     State is NaN where either change is unavailable. T10Y2Y from 1976, T10Y3M from 1982.

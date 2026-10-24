@@ -184,10 +184,10 @@ def test_state_reports_inputs_that_are_approximate_before_their_first_vintage():
     assert macro_state(_inputs(), IDX).attrs["approximate_before"] == {}
 
 
-def test_fc_impulse_uses_the_six_month_change_window():
+def test_fc_impulse_uses_the_market_change_window():
     from src.macro.state import CHANGE_WINDOW
     st = macro_state(_inputs(), IDX)
-    assert CHANGE_WINDOW == 126
+    assert CHANGE_WINDOW == 63
     fc = st["FC"]
     both = pd.concat([st["FC_impulse"], fc - fc.shift(CHANGE_WINDOW)], axis=1).dropna()
     assert len(both) > 100 and (both.iloc[:, 0] - both.iloc[:, 1]).abs().max() < 1e-12

@@ -255,3 +255,25 @@ the 3-month average in the Sahm rule, `unr_d3` (a stated 3-month change in `UNRA
 Effect (label stability only; no returns were used): `curve_dynamics` episodes 1,282 -> 816, mean run 10 -> 16 business days,
 median unchanged at 3; valid from 1976-11-24 (was 1976-08-27); no other regime label changed. Series valid-from dates move out
 by about 63 business days for the changed variables.
+
+### Change after the C8 validation: 126-day window reverted; `min_duration` 21 on every macro-layer regime except `growth_level` (2026-10-24)
+
+**Researcher decision (C8 D1). This changes definitions, so it is family `v2`; the table above is frozen and not edited. The researcher
+creates `macro_state_definitions_v2.md`.** Two changes, both made after the 126-day entry above:
+
+1. **Change window back to 63 business days.** `state.CHANGE_WINDOW = 63` again (about 3 months): `FC_impulse`, the curve state
+   and the other rates changes, the HY OAS change, and the growth / inflation / policy pricing changes. The macro impulses stay at 6
+   months (126 days). The J4 text in this file ("6 months (63 business days for market series)") is a wording slip: for market series
+   it means 63 business days, about 3 months. The 126-day trial left no trace in the code, except that the window is now one constant (`state.CHANGE_WINDOW`, imported by `rates.py` and `market.py`).
+2. **`min_duration` = 21 business days on `policy`, `financial_conditions`, `curve_dynamics` and `dollar_trend`**, in addition to
+   `growth_inflation` (unchanged). `growth_level` keeps no rule. This is the J9 alternative "apply to every regime", chosen because
+   those four regimes flipped every 3-10 days (median episode 3.0-10 business days). The rule is causal: a new label takes effect on
+   its 21st consecutive day, i.e. 20 business days after the raw change. A NaN resets it and the next label is then adopted at once. It is applied to the final label (for `policy`, to
+   stance x direction together). Pass `min_duration=1` to any macro-layer regime for the raw label (`growth_level` accepts it too, default 1). Labels are now computed on
+   the full history and sliced to a requested `start`/`end` afterwards, so they don't depend on the window asked for. The existing
+   `VolRegime`, `RatesRegime` and `TrendRegime` (`src/backtest/regimes.py`) get no rule.
+
+Effect (label stability only; no returns were used): episodes 862 -> 62 (`policy`), 388 -> 33 (`financial_conditions`),
+1,282 -> 125 (`curve_dynamics`), 108 -> 26 (`dollar_trend`); median run 3.5 / 3.5 / 3.0 / 10 -> 216 / 123 / 83 / 182 business days;
+every label of every regime keeps at least 5 episodes; valid-from dates are unchanged. Known cost: slow labels miss fast events, for
+example `financial_conditions` is `tight` on 48% of the 2020 window (88% raw).

@@ -2,8 +2,10 @@
 src/macro/regimes.py
 
 The macro regime layer (C6): `Regime` subclasses that read the C3/C4/C5 state
-and compute no inputs of their own. Definitions are frozen in
-docs/research/macro_state_definitions_v1.md section 4.
+and compute no inputs of their own. Definitions: docs/research/macro_state_definitions_v1.md
+section 4 plus the amendments in its change log (family v2: `min_duration` 21 on every regime in this
+module except `growth_level`; market-style changes over 63 business days). The v2 definitions
+file is the researcher's to save (guard G1).
 
     layer "macro":   growth_inflation, growth_level, policy, financial_conditions
     layer "market":  curve_dynamics, dollar_trend
@@ -11,17 +13,14 @@ docs/research/macro_state_definitions_v1.md section 4.
 Lookahead. Every label on date t uses only the state on or before t (the state is
 built from release-dated, point-in-time inputs). The `min_duration` rule is causal:
 a new label takes effect only once it has held for `min_duration` consecutive
-business days, so it lags the change instead of rewriting history.
+business days (on its Nth consecutive day, i.e. N-1 days after the raw change), so it lags the
+change instead of rewriting history. A NaN resets it, and the next label is then adopted at once.
+Every regime in this module except `growth_level` applies it with MIN_DURATION = 21 (family v2,
+decision D1 of the C8 validation); pass `min_duration=1` for the raw labels (`growth_level`
+accepts it too, default 1).
 
-Boundary rule. A signed composite exactly at 0 keeps the previous label.
-
-All regimes in a list share one state panel (`StatePanel`), built once from the DB
-(about 6 s) or injected for DB-free use:
-
-    regimes = macro_regimes(database=ro)                  # all six, sharing a panel
-    Conditioner(returns, regimes=regimes, ...)
-
-    reg = GrowthInflationRegime(panel=StatePanel.from_frame(df))   # tests / notebooks
+Start and end dates. Labels are always computed on the full history (the panel is built from
+1954-07-01) and then sliced to `start`/`end`, so they don't depend on the requested window.
 """
 
 from __future__ import annotations
@@ -38,7 +37,8 @@ from src.backtest.regimes import (
 )
 
 FC_BURN_IN = 756
-GROWTH_INFLATION_MIN_DURATION = 21
+MIN_DURATION = 21               # business days a new label must hold before it takes effect (family v2)
+GROWTH_INFLATION_MIN_DURATION = MIN_DURATION
 POLICY_DEADBAND = 0.25          # percentage points of the 6-month change in DFF
 
 
@@ -133,7 +133,9 @@ PANEL_COLUMNS = ["G_level", "G_impulse", "pi_impulse", "P_stance", "P_impulse", 
 class StatePanel:
     """A business-day DataFrame of every state column the regimes and flags read.
 
-    Build with StatePanel.from_db() (cached per instance) or StatePanel.from_frame().
+    Build with StatePanel(database=...) (lazy, cached per instance) or StatePanel.from_frame().
+    The regimes always build theirs on the full history (default start 1954-07-01) and slice
+    labels afterwards.
     """
 
     def __init__(self, frame: pd.DataFrame | None = None, database=None,
@@ -179,7 +181,10 @@ class StatePanel:
 # ── Regime classes ────────────────────────────────────────────────────────────
 
 class MacroRegime(Regime):
-    """Base for regimes that read a StatePanel instead of loading a level series."""
+    """Base for regimes that read a StatePanel instead of loading a level series.
+
+    Subclasses implement `_compute(cols)` on the panel's full history; `labels()` slices the result
+    to `start`/`end` afterwards, so labels don't depend on the requested window."""
 
     layer: str = "macro"
     columns: tuple[str, ...] = ()
@@ -187,15 +192,23 @@ class MacroRegime(Regime):
     def __init__(self, panel: StatePanel | None = None, database=None,
                  start: str | None = None, end: str | None = None) -> None:
         super().__init__(database=database, start=start, end=end)
-        self._panel = panel if panel is not None else StatePanel(database=database, start=start, end=end)
+        self._panel = panel if panel is not None else StatePanel(database=database)
 
     def _cols(self) -> pd.DataFrame:
         f = self._panel.frame
         missing = [c for c in self.columns if c not in f.columns]
         if missing:
             raise KeyError(f"[{self.name}] state panel is missing columns {missing}")
-        f = f.loc[self._start:self._end] if (self._start or self._end) else f
         return f[list(self.columns)]
+
+    def _compute(self, cols: pd.DataFrame) -> pd.Series:   # pragma: no cover - abstract
+        raise NotImplementedError
+
+    def labels(self) -> pd.Series:
+        lab = self._compute(self._cols())
+        if self._start or self._end:
+            lab = lab.loc[self._start:self._end]
+        return lab
 
 
 class GrowthInflationRegime(MacroRegime):
@@ -207,57 +220,78 @@ class GrowthInflationRegime(MacroRegime):
         super().__init__(**kw)
         self._min_duration = min_duration
 
-    def labels(self) -> pd.Series:
-        c = self._cols()
+    def _compute(self, c: pd.DataFrame) -> pd.Series:
         return growth_inflation_labels(c["G_impulse"], c["pi_impulse"], self._min_duration)
 
 
 class GrowthLevelRegime(MacroRegime):
-    """above_trend / below_trend by the sign of G_level."""
+    """above_trend / below_trend by the sign of G_level. No min_duration rule by default (min_duration=1)."""
     name = "growth_level"
     columns = ("G_level",)
 
-    def labels(self) -> pd.Series:
-        return growth_level_labels(self._cols()["G_level"])
+    def __init__(self, min_duration: int = 1, **kw) -> None:
+        super().__init__(**kw)
+        self._min_duration = min_duration
+
+    def _compute(self, c: pd.DataFrame) -> pd.Series:
+        return min_duration_labels(growth_level_labels(c["G_level"]), self._min_duration)
 
 
 class PolicyRegime(MacroRegime):
-    """restrictive / accommodative x tightening / easing (±25 bp dead-band, direction held)."""
+    """restrictive / accommodative x tightening / easing (±25 bp dead-band, direction held),
+    then the 21-business-day min_duration rule."""
     name = "policy"
     columns = ("P_stance", "P_impulse")
 
-    def labels(self) -> pd.Series:
-        c = self._cols()
-        return policy_labels(c["P_stance"], c["P_impulse"])
+    def __init__(self, min_duration: int = MIN_DURATION, **kw) -> None:
+        super().__init__(**kw)
+        self._min_duration = min_duration
+
+    def _compute(self, c: pd.DataFrame) -> pd.Series:
+        return min_duration_labels(policy_labels(c["P_stance"], c["P_impulse"]), self._min_duration)
 
 
 class FinancialConditionsRegime(MacroRegime):
-    """loose / normal / tight: expanding terciles of FC."""
+    """loose / normal / tight: expanding terciles of FC, then the 21-business-day min_duration rule."""
     name = "financial_conditions"
     columns = ("FC",)
 
-    def labels(self) -> pd.Series:
-        return financial_conditions_labels(self._cols()["FC"])
+    def __init__(self, min_duration: int = MIN_DURATION, **kw) -> None:
+        super().__init__(**kw)
+        self._min_duration = min_duration
+
+    def _compute(self, c: pd.DataFrame) -> pd.Series:
+        return min_duration_labels(financial_conditions_labels(c["FC"]), self._min_duration)
 
 
 class CurveDynamicsRegime(MacroRegime):
-    """bull/bear x steepener/flattener from the 126-day (6-month) changes in DGS10 and T10Y2Y."""
+    """bull/bear x steepener/flattener from the 63-day (3-month) changes in DGS10 and T10Y2Y,
+    then the 21-business-day min_duration rule."""
     layer = "market"
     name = "curve_dynamics"
     columns = ("curve_state",)
 
-    def labels(self) -> pd.Series:
-        return self._cols()["curve_state"].astype(object)
+    def __init__(self, min_duration: int = MIN_DURATION, **kw) -> None:
+        super().__init__(**kw)
+        self._min_duration = min_duration
+
+    def _compute(self, c: pd.DataFrame) -> pd.Series:
+        return min_duration_labels(c["curve_state"].astype(object), self._min_duration)
 
 
 class DollarTrendRegime(MacroRegime):
-    """strong_usd / weak_usd: DTWEXBGS vs its 200-day mean. Approximate before 2019-02."""
+    """strong_usd / weak_usd: DTWEXBGS vs its 200-day mean, then the 21-business-day min_duration
+    rule. Approximate before 2019-02."""
     layer = "market"
     name = "dollar_trend"
     columns = ("usd_state",)
 
-    def labels(self) -> pd.Series:
-        return self._cols()["usd_state"].astype(object)
+    def __init__(self, min_duration: int = MIN_DURATION, **kw) -> None:
+        super().__init__(**kw)
+        self._min_duration = min_duration
+
+    def _compute(self, c: pd.DataFrame) -> pd.Series:
+        return min_duration_labels(c["usd_state"].astype(object), self._min_duration)
 
 
 # Existing market regimes get a layer so the Diagnostics tab can group everything.
@@ -277,10 +311,11 @@ MACRO_REGIME_NAMES = ["growth_inflation", "growth_level", "policy", "financial_c
 
 def macro_regimes(database=None, start: str | None = None, end: str | None = None,
                   names: list[str] | None = None, panel: StatePanel | None = None) -> list[Regime]:
-    """The macro-layer regimes (or `names` from MACRO_REGIME_NAMES), sharing one state panel."""
-    panel = panel if panel is not None else StatePanel(database=database, start=start, end=end)
+    """The macro-layer regimes (or `names` from MACRO_REGIME_NAMES), sharing one state panel.
+    `start`/`end` slice the labels after they are computed on the full history."""
+    panel = panel if panel is not None else StatePanel(database=database)
     chosen = names or MACRO_REGIME_NAMES
     unknown = [n for n in chosen if n not in MACRO_REGIME_NAMES]
     if unknown:
         raise KeyError(f"unknown macro regimes {unknown}; expected {MACRO_REGIME_NAMES}")
-    return [REGIME_REGISTRY[n](panel=panel, database=database) for n in chosen]
+    return [REGIME_REGISTRY[n](panel=panel, database=database, start=start, end=end) for n in chosen]

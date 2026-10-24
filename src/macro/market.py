@@ -33,7 +33,7 @@ VOL_LABELS = ["low_vol", "mid_vol", "high_vol"]    # same as src.backtest.regime
 COT_AVAILABLE_LAG_DAYS = 3                         # report is for Tuesday, published Friday
 
 # Daily z-score composites: (input key, frequency, sign). Growth pricing is built
-# from derived 126-day changes, see growth_pricing().
+# from derived 63-day changes, see growth_pricing().
 # Positioning: key -> (series code, measure, label). Leveraged funds on TFF for
 # rates / equity index / FX, managed money on disaggregated for commodities.
 POSITIONING: dict[str, tuple[str, str, str]] = {
@@ -58,7 +58,7 @@ def _chg(s: pd.Series, n: int = CHANGE_WINDOW) -> pd.Series:
 
 
 def credit(inputs: dict[str, pd.Series], index: pd.DatetimeIndex) -> pd.DataFrame:
-    """HY OAS level and 126-day change, and BBB OAS - IG OAS (all in percent). From 1997."""
+    """HY OAS level and 63-day change, and BBB OAS - IG OAS (all in percent). From 1997."""
     hy = _d(inputs, "BAMLH0A0HYM2", index)
     return pd.DataFrame({
         "hy_oas": hy, "d_hy_oas": _chg(hy),
@@ -110,7 +110,7 @@ def equity_trend(inputs: dict[str, pd.Series], index: pd.DatetimeIndex) -> pd.Se
 
 
 def growth_pricing(inputs: dict[str, pd.Series], index: pd.DatetimeIndex) -> pd.DataFrame:
-    """What markets price for growth: mean of expanding z-scores (burn-in 756) of 126-day
+    """What markets price for growth: mean of expanding z-scores (burn-in 756) of 63-day
     changes in T10Y2Y, -HY OAS, log(Russell 2000 / S&P 500) and log(copper / gold).
     Positive = markets price stronger growth. Needs >= 2 components. From ~2000.
     Copper and gold are front-month futures, not roll-adjusted, so the ratio carries
@@ -140,14 +140,14 @@ def _z_of_change(s: pd.Series, index: pd.DatetimeIndex) -> pd.Series:
 
 
 def inflation_pricing(inputs: dict[str, pd.Series], index: pd.DatetimeIndex) -> pd.Series:
-    """126-day change in T10YIE, expanding z (burn-in 756). From 2003 (+ burn-in)."""
+    """63-day change in T10YIE, expanding z (burn-in 756). From 2003 (+ burn-in)."""
     if "T10YIE" not in inputs:
         return pd.Series(np.nan, index=index, name="inflation_pricing")
     return _z_of_change(inputs["T10YIE"], index).rename("inflation_pricing")
 
 
 def policy_pricing(inputs: dict[str, pd.Series], index: pd.DatetimeIndex) -> pd.Series:
-    """126-day change in DGS2 - DFF, expanding z (burn-in 756). From 1976 (+ burn-in)."""
+    """63-day change in DGS2 - DFF, expanding z (burn-in 756). From 1976 (+ burn-in)."""
     if "DGS2" not in inputs or "DFF" not in inputs:
         return pd.Series(np.nan, index=index, name="policy_pricing")
     spread = (_d(inputs, "DGS2", index) - _d(inputs, "DFF", index)).dropna()

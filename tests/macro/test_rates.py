@@ -57,9 +57,9 @@ def test_missing_series_give_nan_not_error():
     assert rates.treasury_proxy_returns({}, IDX).isna().all()
 
 
-def test_changes_are_causal_6_month_differences():
+def test_changes_are_causal_3_month_differences():
     n = rates.CHANGE_WINDOW
-    assert n == 126
+    assert n == 63
     inp = _inputs()
     d = rates.nominal_decomposition(inp, IDX)
     assert d["d_real"].iloc[200] == pytest.approx(inp["DFII10"].iloc[200] - inp["DFII10"].iloc[200 - n])
@@ -105,3 +105,16 @@ def test_treasury_proxy_formula():
     assert r.iloc[1] == pytest.approx(5 / 100 / 252)
     assert r.iloc[2] == pytest.approx(5 / 100 / 252 + 8.5 * 0.01)       # yield fell 100 bp
     assert r.iloc[4] == pytest.approx(4 / 100 / 252 - 8.5 * 0.005)      # yield rose 50 bp
+
+
+@pytest.mark.parametrize("fn", [
+    rates.nominal_decomposition,
+    lambda i, ix: rates.nominal_decomposition(i, ix, tenor=5),
+    rates.term_premium, rates.policy_expectations, rates.treasury_proxy_returns,
+])
+def test_every_rates_function_is_truncation_invariant(fn):
+    inp, cut = _inputs(), IDX[1500]
+    full = fn(inp, IDX)
+    trunc = fn({k: v[v.index <= cut] for k, v in inp.items()}, IDX[IDX <= cut])
+    check = pd.testing.assert_series_equal if isinstance(full, pd.Series) else pd.testing.assert_frame_equal
+    check(full.loc[:cut], trunc, check_names=False) if isinstance(full, pd.Series) else check(full.loc[:cut], trunc)

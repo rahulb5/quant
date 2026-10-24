@@ -32,9 +32,10 @@ Z_CLIP = 3.0
 
 # Business-day windows. CHANGE_WINDOW is the one lookback for every market-style change in the
 # macro layer (FC_impulse here, curve / decomposition changes in rates.py, credit and pricing
-# changes in market.py): 6 months, matching the 6-month impulses of the macro series (J4).
+# changes in market.py): 63 business days, about 3 months. The macro impulses (G, pi, P, CS) are
+# 6-month (126-day) changes. A 126-day trial on 2026-10-24 was reverted by the researcher.
 D126 = 126
-CHANGE_WINDOW = D126
+CHANGE_WINDOW = 63
 
 # (input name, frequency, sign). Positive sign = more of what the composite is named for.
 GROWTH_LEVEL = [("ip_yoy", "monthly", +1), ("pay_yoy", "monthly", +1), ("unr_gap", "monthly", -1)]

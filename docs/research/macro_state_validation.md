@@ -1,11 +1,11 @@
 # Macro state v1 — validation (C8)
 
-**Status:** for the researcher to read. Nothing here changes a definition; section 8 lists the changes I'd propose and why.
+**Status:** for the researcher to read. Decisions D1 and D2 (section 8) have been made and applied; the definitions amendments are logged in the v1 change log and a draft `macro_state_definitions_v2.md` is waiting for you to save and approve it (guard G1 doesn't let me write `*_v<N>.md`).
 **Definitions:** `docs/research/macro_state_definitions_v1.md` (frozen `a1445a1`, 2026-10-24).
 **Code checked:** `06cdedc` (state), `2984b5b` (rates), `d2fcc8a` + `e452b2b` (market, dollar), `81dfaab` (regimes, flags), `ad25a59` (ledger).
 **Data as of:** 2026-10-23. Every number below comes from `scripts/macro_state_validation.py`.
 **No asset returns were used** (plan step C8.1). Everything is compared with NBER recessions (`USREC`), known episodes, other vintages of the same data, and the state's own history.
-**Change window (2026-10-24):** every market-style change in the macro layer now uses 126 business days (6 months), not 63. This affects `curve_dynamics`, `FC_impulse`, the rates decomposition and the market pricing variables. Numbers below are on the 126-day window; the one that changed materially is `curve_dynamics` (1,282 episodes before, 816 now).
+**Applied since the first draft of this note (2026-10-24):** D1 (21-day `min_duration` on `policy`, `financial_conditions`, `curve_dynamics`, `dollar_trend`), D2 (continuing claims get the dollar treatment). A 126-day change window was also tried and reverted, so market-style changes are 63 business days. Every number below is with these applied; the raw-label numbers that motivated D1 are kept in section 7.
 **File name:** the plan called this `macro_state_v1.md`; the repo's guard treats any `docs/research/*_v<N>.md` as a frozen definitions file, so it is named `macro_state_validation.md`. Figures are in `docs/research/macro_state_v1/`.
 
 ## 1. Verdict in one table
@@ -20,9 +20,9 @@
 | Do the unrevised-series rules hold? | CPI, SLOOS (in the vintage era): yes. ICNSA: roughly. **CCSA failed** and was moved to the dollar treatment (decided and applied, §5.2). SLOOS history was restated in 2019 | §5 |
 | Is the real-time build free of lookahead? | Yes: 15 of 15 real-time inputs (continuing claims included) are bit-identical when the database is cut at 2012 or 2019 | §5 |
 | Are any regimes near-duplicates? | No. Highest Cramér's V is 0.54 (`policy` and `growth_level`) | §6 |
-| Are the regimes usable as defined? | **No, four of six are too noisy.** Median episode length is 2–5 days for `policy`, `financial_conditions` and `curve_dynamics` | §7 |
+| Are the regimes usable? | **Before D1, no:** median episode 3–10 days for `policy`, `financial_conditions`, `curve_dynamics`, `dollar_trend`. **With the 21-day rule (applied): yes.** Median run 77–630 days, every label keeps at least 7 episodes (fewest: `financial_conditions` loose 7, `policy` accommodative_tightening 11). Cost: slow labels miss fast events (2020) | §7 |
 
-One thing is left to decide: the regime stability rule (§8, D1). It is about label behaviour, not returns. Continuing claims (D2) were decided on 2026-10-24 and applied.
+Nothing is waiting on a decision: D1 and D2 are applied. What is left is for you to save and approve the v2 definitions file (§8). All the checks here are about data and label behaviour, not returns.
 
 ## 2. Growth and labor against recessions
 
@@ -86,6 +86,8 @@ Peak value in each window, and where that peak ranks in the series' own full his
 
 ![Regime timelines](macro_state_v1/regime_timelines.png)
 
+Labels below are with the 21-day rule applied (D1). `growth_level` has no rule.
+
 **`growth_inflation`** (share of days, by window):
 
 | Window | goldilocks | reflation | stagflation | deflation |
@@ -103,25 +105,25 @@ Peak value in each window, and where that peak ranks in the series' own full his
 
 **`growth_level`:** below trend on 74–99% of days in 1973–75, 1980–82, 2001, 2008. Above trend in 2020 (81%) and 2022 (100%), for the same reason `G_level` was positive in 2020 (§2).
 
-**`financial_conditions`:** tight on 62% (2008–09), 88% (2020), 73% (2022).
+**`financial_conditions`:** tight on 62% of 2008–09, 48% of the 2020 recession window (2020-02-01 to 04-30) and 48% of 2022 (raw labels without the rule: 62%, 88%, 73%). The 21-day rule is why: a fast crisis is over before the label confirms it. The same applies to every regime with the rule; see §9.
 
-**`policy`** (share of days):
+**`policy`** (share of days, 21-day rule applied):
 
 | Fed cycle | accommodative, easing | accommodative, tightening | restrictive, easing | restrictive, tightening |
 |---|---|---|---|---|
-| 1994–95 tightening | 0% | 55% | 0% | 44% |
-| 1999–2000 tightening | 0% | 0% | 5% | 95% |
-| 2001 easing | 72% | 0% | 28% | 0% |
-| 2004–06 tightening | 4% | 65% | 0% | 31% |
-| 2007–09 easing | 77% | 2% | 22% | 0% |
-| 2015–18 tightening | 2% | 98% | 0% | 0% |
-| 2019 easing | 83% | 17% | 0% | 0% |
+| 1994–95 tightening | 4% | 75% | 0% | 21% |
+| 1999–2000 tightening | 0% | 0% | 13% | 87% |
+| 2001 easing | 63% | 0% | 37% | 0% |
+| 2004–06 tightening | 8% | 69% | 0% | 23% |
+| 2007–09 easing | 72% | 0% | 27% | 1% |
+| 2015–18 tightening | 4% | 96% | 0% | 0% |
+| 2019 easing | 67% | 33% | 0% | 0% |
 | 2020 emergency easing | 100% | 0% | 0% | 0% |
-| 2022–23 tightening | 3% | 97% | 0% | 0% |
+| 2022–23 tightening | 9% | 91% | 0% | 0% |
 
-- **Direction works:** every tightening cycle is labelled tightening on 95–99% of days and every easing cycle easing on 83–100%.
-- **Stance is the problem, and it isn't a bug.** The real policy rate (`DFF` − core CPI YoY) was negative nearly every year from 2009 to 2022 (-4.4 on average in 2022) and only turned positive in 2023–24. Stance is that rate minus its own expanding median (1.1–2.0 over the sample), so from 2009 to 2022 it's below the baseline and the label reads "accommodative" even while the Fed hikes from 0% to 5%. A fixed neutral of 0.5% or 1.0% (the J5 alternative) gives the same answer for 2015–18 and 2022–23 (96–98% accommodative-tightening). The restrictive share by decade is 0% in the 2010s.
-- **Consequence:** restrictive labels exist mostly before 2008. Any statistic on `restrictive_*` is about the 1960s–2000s, and `accommodative_tightening` is dominated by two cycles (2015–18, 2022–23). Report policy results pre- and post-2008 separately.
+- **Direction works, with the rule's delay visible:** tightening cycles are labelled tightening on 87–96% of days, easing cycles easing on 67–100%. The shortfalls come from the lag after a turn: the label from the previous cycle persists for the first weeks (a hiking window that starts still labelled easing from 1998; the 2019 pivot).
+- **Stance is the problem, and it isn't a bug.** The real policy rate (`DFF` − core CPI YoY) was negative nearly every year from 2009 to 2022 (-4.4 on average in 2022) and only turned positive in 2023–24. Stance is that rate minus its own expanding median (1.1–2.0 over the sample), so from 2009 to 2022 it's below the baseline and the label reads "accommodative" even while the Fed hikes from 0% to 5%. A fixed neutral of 0.5% or 1.0% (the J5 alternative) gives the same answer for 2015–18 and 2022–23. The restrictive share by decade is 0% in the 2010s.
+- **Consequence:** restrictive labels exist mostly before 2008. Any statistic on `restrictive_*` is about the 1960s–2000s, and `accommodative_tightening` is dominated by two cycles (2015–18, 2022–23; 11 episodes in total). Report policy results pre- and post-2008 separately.
 
 ## 5. Real-time vs latest-vintage, and lookahead
 
@@ -136,7 +138,7 @@ I rebuilt the whole state using every period's *latest* value, available on its 
 | `L_level` | 0.998 | 0.067 | 0.45 |
 | `L_impulse` | 0.987 | 0.090 | 0.54 |
 | `pi_level`, `pi_impulse`, `P_stance`, `P_impulse` | 1.000 | 0.000 | 0.000 |
-| `FC`, `FC_impulse` | 1.000, 1.000 | 0.008, 0.012 | 0.20, 0.21 |
+| `FC`, `FC_impulse` | 1.000, 0.999 | 0.008, 0.012 | 0.20, 0.19 |
 | `CS`, `CS_impulse` | 0.979, 0.942 | 0.106, 0.126 | 0.90, 0.84 |
 
 | Regime | Label differs on (all days) | Since 1996 |
@@ -144,9 +146,9 @@ I rebuilt the whole state using every period's *latest* value, available on its 
 | `growth_inflation` | 7.0% | 7.1% |
 | `growth_level` | 4.9% | 1.7% |
 | `policy` | 0.0% | 0.0% |
-| `financial_conditions` | 0.8% | 0.8% |
+| `financial_conditions` | 1.2% | 1.2% |
 
-Inflation and policy don't change because core CPI NSA and `DFF` are unrevised. Growth and credit supply do. A backtest on latest-vintage data would see a different `growth_inflation` label on one day in fourteen. The stored regime labels match the rebuilt real-time ones exactly, so what experiments use is the real-time version.
+The table uses the labels experiments see, including the 21-day rule. Inflation and policy don't change because core CPI NSA and `DFF` are unrevised. Growth and credit supply do. A backtest on latest-vintage data would see a different `growth_inflation` label on one day in fourteen. The stored regime labels match the rebuilt real-time ones exactly, so what experiments use is the real-time version.
 
 ### 5.2 The unrevised-series rules
 
@@ -185,77 +187,80 @@ Cramér's V between regime labels, on days where both exist (at least 5,008 days
 
 | | gr_inf | gr_lvl | policy | fin_cond | curve | dollar | vol | rates_curve | eq_trend |
 |---|---|---|---|---|---|---|---|---|---|
-| growth_inflation | 1.00 | 0.24 | 0.16 | 0.39 | 0.26 | 0.24 | 0.17 | 0.20 | 0.22 |
-| growth_level | 0.24 | 1.00 | **0.54** | 0.24 | 0.28 | 0.08 | 0.09 | 0.13 | 0.08 |
-| policy | 0.16 | 0.54 | 1.00 | 0.25 | 0.31 | 0.15 | 0.22 | **0.45** | 0.06 |
-| financial_conditions | 0.39 | 0.24 | 0.25 | 1.00 | 0.21 | 0.12 | 0.37 | 0.35 | **0.43** |
-| curve_dynamics | 0.26 | 0.28 | 0.31 | 0.21 | 1.00 | 0.20 | 0.15 | 0.26 | 0.21 |
-| dollar_trend | 0.24 | 0.08 | 0.15 | 0.12 | 0.20 | 1.00 | 0.10 | 0.01 | 0.20 |
-| volatility | 0.17 | 0.09 | 0.22 | 0.37 | 0.15 | 0.10 | 1.00 | 0.03 | **0.49** |
-| rates_curve | 0.20 | 0.13 | 0.45 | 0.35 | 0.26 | 0.01 | 0.03 | 1.00 | 0.02 |
-| equity_trend | 0.22 | 0.08 | 0.06 | 0.43 | 0.21 | 0.20 | 0.49 | 0.02 | 1.00 |
+| growth_inflation | 1.00 | 0.24 | 0.15 | 0.38 | 0.27 | 0.16 | 0.17 | 0.20 | 0.22 |
+| growth_level | 0.24 | 1.00 | **0.56** | 0.22 | 0.14 | 0.07 | 0.09 | 0.13 | 0.08 |
+| policy | 0.15 | 0.56 | 1.00 | 0.24 | 0.28 | 0.15 | 0.22 | **0.43** | 0.08 |
+| financial_conditions | 0.38 | 0.22 | 0.24 | 1.00 | 0.26 | 0.13 | 0.27 | 0.35 | 0.26 |
+| curve_dynamics | 0.27 | 0.14 | 0.28 | 0.26 | 1.00 | 0.13 | 0.13 | 0.28 | 0.18 |
+| dollar_trend | 0.16 | 0.07 | 0.15 | 0.13 | 0.13 | 1.00 | 0.13 | 0.01 | 0.18 |
+| volatility | 0.17 | 0.09 | 0.22 | 0.27 | 0.13 | 0.13 | 1.00 | 0.03 | **0.49** |
+| rates_curve | 0.20 | 0.13 | 0.43 | 0.35 | 0.28 | 0.01 | 0.03 | 1.00 | 0.02 |
+| equity_trend | 0.22 | 0.08 | 0.08 | 0.26 | 0.18 | 0.18 | 0.49 | 0.02 | 1.00 |
 
-- **No pair is a near-duplicate** (highest 0.54, `policy` and `growth_level`; both follow the long cycles of the 1960s–80s). So nothing needs dropping on overlap grounds.
-- **`RatesRegime` (`rates_curve`) and `curve_dynamics` both stay:** V = 0.26. One is the level of the curve, the other the direction of change.
+- **No pair is a near-duplicate** (highest 0.56, `policy` and `growth_level`; both follow the long cycles of the 1960s–80s). So nothing needs dropping on overlap grounds.
+- **`RatesRegime` (`rates_curve`) and `curve_dynamics` both stay:** V = 0.28. One is the level of the curve, the other the direction of change.
 - **State vector correlations above 0.6 in absolute value:** `G_level` with `L_level` (-0.80) and `G_impulse` with `L_impulse` (-0.73). They share unemployment and claims, so the labor variables add little over growth. They stay because the spec keeps them for the `labor_deteriorating` flag, but they shouldn't be used as independent regressors next to `G`.
 
 ## 7. Episodes: how many independent observations are behind each label
 
-An episode is a maximal run of one label. Labels with fewer than 5 episodes would be excluded from experiment verdicts. **None are**, but look at the run lengths:
+An episode is a maximal run of one label. Labels with fewer than 5 episodes are reported but not used in experiment verdicts. **None are under 5.** With the 21-day rule applied (D1) the regimes are:
 
-| Regime | Valid from | Episodes | Median length (business days) | Mean length |
-|---|---|---|---|---|
-| `growth_inflation` | 1960-04 | 159 | 77 | 109 |
-| `growth_level` | 1960-04 | 21 | 780 | 827 |
-| `policy` | 1963-02 | 862 | **3.5** | 19 |
-| `financial_conditions` | 2002-10 | 388 | **3.5** | 16 |
-| `curve_dynamics` | 1976-11 | 816 | **3.0** | 16 |
-| `dollar_trend` | 2006-10 | 108 | 10 | 48 |
+| Regime | Valid from | Episodes | Median length (business days) | Mean length | Fewest episodes for one label |
+|---|---|---|---|---|---|
+| `growth_inflation` | 1960-04 | 159 | 77 | 109 | stagflation 35 |
+| `growth_level` (no rule) | 1960-04 | 25 | 630 | 694 | below_trend 12 |
+| `policy` | 1963-02 | 62 | 216 | 268 | accommodative_tightening 11 |
+| `financial_conditions` | 2002-10 | 33 | 123 | 190 | loose 7 |
+| `curve_dynamics` | 1976-08 | 125 | 83 | 105 | bull_steepener 28 |
+| `dollar_trend` | 2006-10 | 26 | 182 | 201 | strong_usd and weak_usd 13 each |
 
-(`growth_inflation` and `growth_level` are shown with their `min_duration` rule applied, which is how experiments see them. The existing `volatility` and `equity_trend` regimes are similar in kind: 870 and 373 episodes, medians of 3 and 4 days on the raw label counts.)
+The existing `volatility` and `equity_trend` regimes (`src/backtest/regimes.py`) have no rule and look like the raw labels below: 870 and 373 episodes, medians of 3 and 4 days.
 
-`growth_inflation`'s 21-day rule works: without it there'd be 259 episodes with a median of 40 days. The other regimes have no such rule and flip every few days. For `curve_dynamics` the 6-month change window cut the episodes from 1,282 to 816 and raised the mean run from 10 to 16 days, but the median is still 3: a longer window doesn't stop the sign of a change flipping around zero day to day. Counted as raw runs they look like hundreds of independent episodes; they aren't. A label that flips every 3 days around a threshold is noise sampling, and each regime statistic would carry a false sense of precision.
+Treat the episode count, not the day count, as the sample size. `financial_conditions` covers 24 years but only 33 episodes, and its `loose` label has 7. `dollar_trend` has 26 episodes over 20 years. Any regime statistic carries that small a number of independent observations.
 
-What the existing `min_duration` rule does if applied elsewhere (label stability only; each rule delays a regime change by that many days):
+**Why the rule was added (the evidence behind D1).** Without it, `policy`, `financial_conditions`, `curve_dynamics` and `dollar_trend` flipped every 3–10 days. The same four with the rule at 1, 21 and 63 days (label stability only; the rule delays every regime change by that many days minus one: a label takes effect on its Nth consecutive day):
 
 | Regime | `min_duration` | Episodes | Median length | Labels with at least 5 episodes |
 |---|---|---|---|---|
-| `policy` | 1 (current) | 862 | 3.5 | 4/4 |
-| | 21 | 62 | 216 | 4/4 |
+| `growth_inflation` | 1 | 259 | 40 | 4/4 |
+| | **21 (applied)** | 159 | 77 | 4/4 |
+| | 63 | 76 | 190 | 4/4 |
+| `policy` | 1 (raw) | 862 | 3.5 | 4/4 |
+| | **21 (applied)** | 62 | 216 | 4/4 |
 | | 63 | 39 | 374 | 4/4 |
-| `financial_conditions` | 1 (current) | 388 | 3.5 | 3/3 |
-| | 21 | 33 | 123 | 3/3 |
+| `financial_conditions` | 1 (raw) | 388 | 3.5 | 3/3 |
+| | **21 (applied)** | 33 | 123 | 3/3 |
 | | 63 | 15 | 355 | **1/3** |
-| `curve_dynamics` | 1 (current) | 816 | 3.0 | 4/4 |
-| | 21 | 94 | 110 | 4/4 |
-| | 63 | 46 | 266 | 4/4 |
-| `dollar_trend` | 1 (current) | 108 | 10 | 2/2 |
-| | 21 | 26 | 182 | 2/2 |
+| `curve_dynamics` | 1 (raw) | 1,282 | 3.0 | 4/4 |
+| | **21 (applied)** | 125 | 83 | 4/4 |
+| | 63 | 38 | 263 | 4/4 |
+| `dollar_trend` | 1 (raw) | 108 | 10 | 2/2 |
+| | **21 (applied)** | 26 | 182 | 2/2 |
 | | 63 | 13 | 338 | 2/2 |
 
-At 21 days every label of every regime keeps at least 5 episodes and the median run is months, not days. At 63 days `financial_conditions` loses two of its three labels, so 63 is too long for it.
+At 63 days `financial_conditions` loses two of its three labels, so 21 is the longest rule that works for all of them. A 126-day change window for the curve state was also tried on 2026-10-24 (episodes 1,282 to 816, median still 3 days) and reverted: a longer window doesn't stop the sign of a change flipping around zero day to day, and the persistence rule does.
 
 ## 8. Decisions
 
-Spec section 7 allows a definition to change when C8 shows it's wrong, with a written reason and a new family version, and not because of how assets behave. These are proposals on that basis. Only D2 has been applied (your decision); the rest are proposals.
+Spec section 7 allows a definition to change when C8 shows it's wrong, with a written reason and a new family version, and not because of how assets behave.
 
-| # | Finding | Proposal | Effect |
+| # | Finding | Decision | Effect |
 |---|---|---|---|
-| **D1** | Four regimes flip every 2–10 days (§7) | Apply `min_duration = 21` to `policy`, `financial_conditions`, `curve_dynamics` and `dollar_trend` (the J9 alternative: "apply to every regime"). Leave `growth_level` (already stable) | Episodes fall from 862 / 388 / 816 / 108 to 62 / 33 / 94 / 26; every change is confirmed 21 days late. New `family_version` v2 |
-| **D2** | Continuing claims aren't unrevised (§5.2) | **Decided and applied 2026-10-24:** same treatment as the dollar (real-time vintages from 2009-09, back-filled latest values with a 19-day lag before; `L_impulse` flagged approximate before then) | `L_impulse` correlation 1.000 with the old build; `labor_deteriorating` flag differs on 0.4% of days; regimes identical. Full 1968 history kept |
+| **D1** | Four regimes flip every 3–10 days (§7) | **Applied 2026-10-24:** `min_duration = 21` on `policy`, `financial_conditions`, `curve_dynamics` and `dollar_trend` (the J9 alternative "apply to every regime"). `growth_level` keeps none. `family_version` v2 | Episodes 862 / 388 / 1,282 / 108 down to 62 / 33 / 125 / 26; every change takes effect 20 business days after the raw change (on the label's 21st consecutive day); valid-from dates unchanged |
+| **D2** | Continuing claims aren't unrevised (§5.2) | **Applied 2026-10-24:** same treatment as the dollar (real-time vintages from 2009-09, back-filled latest values with a 19-day lag before; `L_impulse` flagged approximate before then) | `L_impulse` correlation 1.000 with the old build; `labor_deteriorating` flag differs on 0.4% of days; regimes identical. Full 1968 history kept |
 | **D3** | SLOOS history was restated in 2019 (§5.2) | Keep, and label `CS` as approximate for its expanding baseline before 2019 | No code change; one line in the spec's change log |
 | **D4** | `policy` stance is "accommodative" through 2009–2022 (§4) | No change. Report `policy` results pre- and post-2008 separately, and don't read `restrictive_*` after 2008 | None |
 | **D5** | `L_level`, `L_impulse` are redundant with `G` (§6) | No change; don't use them as regressors beside `G` | None |
 | **D6** | Late releases in 2025 (shutdown) break the fixed lags (§5.2) | No change; note it. A patch for one event would be tuning to it | None |
 
-D2 changed no regime, so it doesn't need a new family version. D1 would: if you accept it I'd implement it as `family_version` v2, re-run the script, and replace §7 and §8 with the v2 numbers before C9.
+**To finish v2:** the guard (G1) stops me writing `docs/research/*_v<N>.md`, so the v2 definitions file has to be created by you. A draft with v1's text, the amended tables (J4 wording, J9, the `min_duration` column) and a v2 change-log row is at `/private/tmp/claude-501/-Users-rhlbh-projects-claudeProjects-quant/fca90f99-6830-466f-8112-90d47d1f19dd/scratchpad/macro_state_definitions_v2_DRAFT.md`. Copy it to `docs/research/macro_state_definitions_v2.md`, change the status line when you approve it, and fill in the date. The v1 change log already records both amendments.
 
 ## 9. What this does not show
 
-- **Nothing about returns.** That's C7, and it should wait until D1 is settled so the analysis is run once on frozen definitions.
+- **Nothing about returns.** That's C7. Definitions are now settled for v2 pending your approval of the file, so the analysis would run once on frozen definitions.
+- **The 21-day rule is a lag, and it costs on fast events.** Every regime with the rule turns about a month (20 business days) after the underlying signal. `financial_conditions` is `tight` on 48% of the 2020-02-01 to 04-30 recession window (88% raw; 76% vs 97% for 2020-02-15 to 06-30): the March 2020 stress was over before the label confirmed it. For crisis analysis use `FC` itself (the continuous series), not the regime. `growth_inflation` has always had the same lag (2020 is the example in §4).
 - **Recessions are 9 events.** AUCs are computed over thousands of days but rest on nine independent episodes, so treat them as sanity checks and not estimates.
 - **`USREC` is the latest vintage** (it's revised, and announced 6–18 months late). It's a reference for the check, not an input.
-- **The 21-day rule is causal**, so `growth_inflation` labels turn about a month after the underlying signs do. For a strategy this is the right (no-lookahead) behaviour, but it means the label is not synchronous with the economy.
 - **Dollar state is approximate before 2019-02** (`usd_approx`) and `L_impulse` before 2009-09, by your decisions of 2026-10-24.
 - **S&P 500 and Russell prices in the DB end 2026-10-02**, so `equity_trend` and the growth-pricing composite are three weeks stale at the right edge. A refresh with `scripts/fetch_equity.py` would fix that.
 
