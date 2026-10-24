@@ -148,6 +148,46 @@ def load_prices(db: Database, asset_id: int) -> pd.Series:
     return pd.Series(df["close"].to_numpy(dtype=float), index=ts.normalize()).rename(asset_id)
 
 
+REFERENCE_ASSETS: dict[str, int] = {"sp500": 100001, "nasdaq100": 100002, "gold": 300009, "crude": 300001}
+REFERENCE_LABELS = {
+    "sp500": "S&P 500", "nasdaq100": "Nasdaq-100", "gold": "Gold (GC1)", "crude": "Crude oil (CL1)",
+    "dollar": "Broad dollar index", "treasury_10y_proxy": "10Y Treasury (constant-duration proxy)",
+}
+
+
+def load_reference_returns(db: Database) -> pd.DataFrame:
+    """Daily simple returns of the C7 reference assets, one column per REFERENCE_LABELS key.
+
+    sp500 / nasdaq100 / gold / crude: close-to-close % change of the stored prices (asset ids in
+    REFERENCE_ASSETS; the gold and crude futures are front-month series that are not roll-adjusted,
+    so a contract roll shows up as a one-day jump). dollar: % change of DTWEXBGS by observation date
+    (latest revision; an ex-post return series, not a point-in-time signal input). treasury_10y_proxy:
+    src.macro.rates.treasury_proxy_returns from DGS10 (8.5 duration, carry from the lagged yield), on
+    business days from the first to the last DGS10 release (holidays earn carry only).
+    The other columns keep their own calendar (NaN where an asset has no row that day). Earliest dates:
+    S&P 500 1970, Nasdaq-100 1985, gold and crude 2000, dollar 2006, Treasury proxy 1962. A column
+    whose source is missing is omitted.
+    """
+    from src.macro.data import load_fred
+    from src.macro.rates import treasury_proxy_returns
+
+    cols: dict[str, pd.Series] = {}
+    for key, asset_id in REFERENCE_ASSETS.items():
+        px = load_prices(db, asset_id)
+        if not px.empty:
+            cols[key] = px.pct_change().dropna().rename(key)
+    usd = load_fred(db, "DTWEXBGS")
+    if not usd.empty:
+        cols["dollar"] = usd.astype(float).pct_change().dropna().rename("dollar")
+    rates_in = load_rates_inputs(db)
+    if "DGS10" in rates_in:
+        index = pd.bdate_range(rates_in["DGS10"].index.min(), rates_in["DGS10"].index.max())
+        proxy = treasury_proxy_returns(rates_in, index).dropna()
+        if not proxy.empty:
+            cols["treasury_10y_proxy"] = proxy.rename("treasury_10y_proxy")
+    return pd.concat(cols.values(), axis=1, sort=True) if cols else pd.DataFrame()
+
+
 def load_market_inputs(db: Database, pre_vintage: PreVintage = "drop") -> dict[str, pd.Series]:
     """Inputs for src.macro.market: FRED daily series (through pit), closing prices
     (usable on their own date) and COT net % of open interest, dated report date + 3

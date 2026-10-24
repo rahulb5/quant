@@ -1,6 +1,6 @@
 # Macro research layer — implementation plan (blended)
 
-**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0–C8 and C10 done; C9 built except the EXP-0001/2 re-runs** (see the outcome blocks; C6 amended 2026-10-24, family v2 frozen in `docs/research/macro_state_definitions_v2.md`). **Next:** C9 re-runs (researcher decision), C11, C12.
+**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0–C10 and C12 done; C9 built except the EXP-0001/2 re-runs** (see the outcome blocks; C6 amended 2026-10-24, family v2 frozen in `docs/research/macro_state_definitions_v2.md`). **Next:** C9 re-runs (researcher decision), C11, `/update-architecture`.
 Replaces Part B of `docs/plans/cot_fix_and_macro_regimes.md`. Part A there (the COT fix) is complete
 and is a prerequisite.
 **Inputs:** the original Part B, and `docs/Macro Research Layer — Design Review.md`. Where they
@@ -673,6 +673,48 @@ on the DB file's modification time. Each panel answers one question:
 | Asset response (regression betas with HAC CIs; regime table with `n_episodes`) | "How have assets responded to this state historically, and how much evidence is there?" |
 
 Smoke tests go in `tests/dashboard/test_pages.py` against the temp DuckDB fixture.
+
+### C12 outcome (2026-10-24)
+
+Built `dashboard/macro/state.py` ("Macro state", `url_path="macro-state"`, one navigation line in `dashboard/app.py`), the loader
+`components.macro_state_bundle()` / `load_macro_state()` (read-only DB handle, `st.cache_data` keyed on path + DB mtime like the
+other macro loaders; about 12 s uncached on the live DB) and the helpers `state_cards()` and `asset_betas()`. New
+`inputs.load_reference_returns()` (S&P 500 100001, Nasdaq-100 100002, gold GC1 300009, crude CL1 300001, DTWEXBGS, and the
+C4 Treasury proxy; the C7 gap). Panels: state cards (level, impulse, level z, staleness per dimension); the 10Y yield as stacked
+63-day real / breakeven change with nominal and term premium (level and change) beside it; macro vs market-implied per
+dimension with the gap, its tercile and the asset's forward returns by tercile (mean and HAC t); positioning z-scores now and
+in history; regime table (label, since, days in, typical run), event flags and a timeline per regime; asset response (univariate
+betas per +1 s.d. with 95% Newey-West intervals at a chosen horizon, and the regime table with `n_episodes`). Sidebar: history
+window and asset. Charts use categorical slots 1-4 of the reference palette (validated: adjacent CVD and normal-vision pass; aqua and
+yellow are below 3:1 on a light surface, so every chart has a legend or labels and the numbers are also in tables).
+Tests: 7 new in `tests/dashboard/test_pages.py` (page with a synthetic bundle incl. controls and flags, no-data and loader-error
+states, the real loader on the sparse fixture DB, `state_cards`, `asset_betas` planted slope and scale invariance) and 3 in
+`tests/macro/test_inputs_reference.py`; 676 pass outside `tests/hooks`. The live DB was run through `AppTest` (all assets, the
+full history window): no exception. **I have not seen the page in a browser: look at it first** (timeline bars, label widths,
+legend placement).
+
+Choices where the plan was open:
+- Asset-response betas are **univariate**, one regression per state variable, on the series scaled by its whole-history s.d.
+  (display scaling: coefficients per +1 s.d., t-statistics unchanged); the C9 state-exposure table is the joint fit. HAC lag =
+  horizon.
+- One sidebar asset serves the divergence table and the asset panel; the plan said the caller picks the asset per dimension.
+- Regime table pairs each label with the **same-day** return (stated on the page); the betas and divergence tables use
+  forward returns.
+- Tests of the page monkeypatch `load_macro_state` with a synthetic bundle (the real bundle needs about 800 rows of history for
+  every series); the real loader is covered on the sparse fixture DB (empty assets, no regime labels).
+
+Review (spec-conformance + pit, one round): no look-ahead. Fixed in-diff: the positioning chart said "net long / net short"
+but colours the sign of the z-score (now "above / below its own history"); the real loader had no test, and writing one found
+a crash in the regime timeline when a regime has no episodes (fixed); the Treasury proxy ran to today on a carried-forward yield
+(now ends at the last DGS10 release); the page claimed every number is point-in-time (asset returns are ex-post: reworded);
+rates and positioning showed no data age (newest raw release dates now shown, carried in the bundle); the regime table's same-day
+pairing was unstated; the divergence table lacked t-statistics; term premium change was missing.
+
+Open for the researcher: (1) the card "level z" for inflation, labor and policy levels is a daily expanding z-score on
+forward-filled days, the same open question as the C7 divergence (definitions section 0 says once per release); (2) the
+positioning panel shows positioning alone: it does not compare it with the direction of the macro move, so only half of "is the
+market crowded in the direction of the macro move?" is answered; (3) whether the divergence table should use an asset per
+dimension instead of the sidebar asset.
 
 ## C13. Tests
 

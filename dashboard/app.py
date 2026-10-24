@@ -15,6 +15,7 @@ st.navigation({
         st.Page("research/experiment.py", title="Experiment", url_path="experiment", visibility="hidden"),
     ],
     "Macro": [
+        st.Page("macro/state.py", title="Macro state", url_path="macro-state"),
         st.Page("macro/explorer.py", title="Macro explorer", url_path="macro"),
     ],
 }).run()

@@ -3,7 +3,7 @@
 **Last audited:** 2026-10-24 (after the macro research layer, `docs/plans/macro_research_layer.md`
 C0–C10 and C12: FRED vintage repair, point-in-time layer, macro state / rates / market state,
 regime layer and event flags, analysis functions, validation write-up, experiment integration,
-trial ledger (migration v11), the Macro state dashboard page (uncommitted at audit time); plus
+trial ledger (migration v11), the Macro state dashboard page; plus
 asset-id blocks and the agentic-workflow guardrails (hooks, reviewer agents, `/plan-step`).
 Previously: the COT collector fix, 2026-10-22)
 **Audited by:** Claude Code (`/update-architecture` skill maintains this file — see bottom section)
@@ -229,13 +229,12 @@ and plots it with a rolling z-score. Data access and math live outside Streamlit
 unreliable, `transform`, `rolling_zscore`). No run/approve/edit controls; the verdicts never say
 "approved".
 
-The **Macro state** page (`dashboard/macro/state.py`, `url_path="macro-state"`; uncommitted at this
-audit) is built from one bundle (`components.macro_state_bundle()` / `load_macro_state()`, same
-read-only, mtime-keyed cache; ~12 s uncached). Panels: state cards (level, impulse, z, staleness),
+The **Macro state** page (`dashboard/macro/state.py`, `url_path="macro-state"`) is built
+from one bundle (`components.macro_state_bundle()` / `load_macro_state()`, same read-only, mtime-keyed cache; ~12 s uncached). Panels: state cards (level, impulse, z, staleness),
 10Y rates decomposition, macro vs market-implied divergence with forward returns by gap tercile,
 COT positioning z-scores, current regimes + event flags + timeline, and asset response (univariate
 HAC betas per +1 s.d. and the regime table with `n_episodes`). State/regime panels are point-in-time;
-the asset returns are ex-post, and the page says so. Not yet checked in a browser.
+the asset returns are ex-post, and the page says so. Checked running by the researcher 2026-10-24.
 
 ### Where are results stored?
 Both places now, depending on what's being asked: structured/queryable headline metrics live in
@@ -347,14 +346,14 @@ longer blocked, just not started.
 | Macro explorer | `dashboard/macro/explorer.py`, `src/macro/{data,transforms}.py`, `tests/macro/` | **KEEP** | First read-only-DuckDB page; data access and transforms kept Streamlit-free and tested. COT picker now has an asset-group filter |
 | Asset-id blocks | `src/db/asset_ids.py`, `src/collectors/asset_id_cleanup.py`, `scripts/renumber_misplaced_assets.py` | **KEEP** | Per-block allocation replaces global `MAX(id)+1`; renumber already run; tested |
 | FRED vintage repair | `src/collectors/fred_cleanup.py`, `scripts/purge_stamped_fred_rows.py` | **KEEP** | One-off (C0): stamped rows replaced by real releases; backup + dry-run; tested. Safe to retire later |
-| Point-in-time layer | `src/macro/{pit,inputs}.py` | **KEEP** | As-of vintage reconstruction; `inputs.py` is the only DB-touching module in the macro layer. `load_reference_returns()` uncommitted at audit |
+| Point-in-time layer | `src/macro/{pit,inputs}.py` | **KEEP** | As-of vintage reconstruction; `inputs.py` is the only DB-touching module in the macro layer. |
 | Macro / rates / market state | `src/macro/{state,rates,market}.py` | **KEEP** | Pure pandas, implements the frozen definitions; tested |
 | Macro regimes + flags | `src/macro/{regimes,flags}.py` | **KEEP** | Six regimes in two layers via `REGIME_REGISTRY`; causal `min_duration`; pit-reviewed (0 mismatches on truncation). Coexists with the older `src/backtest/regimes.py` (vol/rates/trend), which stays as the market-layer defaults |
 | Macro analysis + validation | `src/macro/{analysis,validation}.py`, `scripts/macro_state_validation.py`, `docs/research/macro_state_validation.md` | **KEEP** | Episode-aware statistics; validation write-up drove decision D1 (family v2) |
 | Frozen definitions | `docs/research/macro_state_definitions_{v1,v2}.md` | **KEEP** | v1 FROZEN; v2 status line still reads "awaiting the researcher's freeze" (guard G1 leaves that to the researcher) |
 | Experiment macro diagnostics | `src/experiments/{config,runner}.py` (`DiagnosticsConfig`) | **KEEP** | Regime table by layer, optional state exposure. EXP-0001/2 not yet re-run with it |
 | Trial ledger | `src/experiments/trials.py`, `scripts/trials.py`, migration v11 | **KEEP** | Feeds deflated Sharpe; notebook trials only counted if `log_trial()` is called |
-| Macro state page | `dashboard/macro/state.py`, `dashboard/components.py` loaders | **KEEP** | C12; uncommitted and not yet viewed in a browser at audit time |
+| Macro state page | `dashboard/macro/state.py`, `dashboard/components.py` loaders | **KEEP** | C12; checked running by the researcher 2026-10-24 |
 | Agentic guardrails | `.claude/hooks/{guard,scope}.py`, `.claude/agents/`, `.claude/skills/plan-step/`, `tests/hooks/` | **KEEP** | Phase A of `docs/plans/agentic_workflow.md`; stdlib-only hooks, tested. Phases B+ not built |
 
 ---
@@ -409,8 +408,7 @@ longer blocked, just not started.
 ## 4. Suggested next steps (unordered priority, smallest-step first)
 
 1. Finish the macro research layer (`docs/plans/macro_research_layer.md`; C0–C10 and C12 done):
-   review the Macro state page in a browser and commit C12; decide and do the C9 EXP-0001/2 re-runs;
-   build C11 (walk-forward check in `robustness.py`) and C13 (test gaps).
+   decide and do the C9 EXP-0001/2 re-runs; build C11 (walk-forward check in `robustness.py`) and C13 (test gaps).
 2. Add `tests/collectors/` coverage for `commodity`/`equity`/`gsci` (same monkeypatch pattern as
    `currency`/`macro`/`cot` — see `tests/collectors/test_cot.py` for the `_log_fetch` gotcha).
 3. Close the open research questions in `yield_curve_regime.ipynb` (pick a signal variant via its
