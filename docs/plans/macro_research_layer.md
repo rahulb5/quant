@@ -112,7 +112,7 @@ Yahoo prices ────►└────────────────�
                          │                  pricing divergence
          ┌───────────────┼─────────────────────┐
          ▼               ▼                     ▼
- Conditioner      dashboard/macro/state.py   docs/research/macro_state_v1.md
+ Conditioner      dashboard/macro/state.py   docs/research/macro_state_validation.md
  (every experiment)
 ```
 
@@ -475,7 +475,7 @@ Continuous analysis comes first. Regime tables summarise it.
 Reference assets: as in the original B6 (S&P 500, Nasdaq-100, gold, crude, dollar), with the
 Treasury proxy from C4.
 
-## C8. Validation write-up (`docs/research/macro_state_v1.md`)
+## C8. Validation write-up (`docs/research/macro_state_validation.md`)
 
 Done once, before C9.
 
@@ -491,6 +491,20 @@ Done once, before C9.
    the state vector. Drop near-duplicates.
 5. **Episode count** for every regime label. Labels with fewer than 5 episodes are reported but not
    used in experiment verdicts.
+
+**C8 outcome (2026-10-24).** Written up in `docs/research/macro_state_validation.md` (renamed from the plan's
+`macro_state_v1.md`: the repo guard G1 treats `docs/research/*_v<N>.md` as frozen definitions). Reproducible with
+`scripts/macro_state_validation.py` (pure helpers in `src/macro/validation.py`, 11 tests); three figures in
+`docs/research/macro_state_v1/`. No asset returns used. Headlines: the growth state, Sahm flag, `FC` and `CS`
+track recessions and stress episodes; real-time vs latest-vintage labels differ on 7.0% of days for
+`growth_inflation`; the real-time build is bit-identical under truncation at 2012 and 2019; no regimes overlap
+(max Cramér's V 0.54). **Findings that need a decision:** (D1) `policy`, `financial_conditions` and
+`curve_dynamics` flip every 3-4 days (median episode), so they are not usable as defined; a 21-day
+`min_duration` would give 62 / 33 / 125 episodes with every label still at 5+ episodes; (D2) continuing claims
+(`CCSA`) is revised about 2% in level after 56 days, so it doesn't belong in `UNREVISED_SERIES`. Also reported:
+SLOOS was restated in 2019-11, policy stance reads "accommodative" through 2009-2022 (negative real rates), and
+fixed release lags were exceeded in 2025 (shutdown). **Checkpoint: researcher reads it and decides D1/D2 before
+C7 and C9.**
 
 ## C9. Experiment integration
 
