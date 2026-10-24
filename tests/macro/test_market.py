@@ -79,7 +79,7 @@ def test_pricing_z_scores_and_missing_inputs():
     assert market.policy_pricing(inp, IDX).abs().max() <= 3.0
     assert market.inflation_pricing({}, IDX).isna().all()
     assert market.policy_pricing({"DGS2": inp["DGS2"]}, IDX).isna().all()
-    assert market.market_state({}, IDX).drop(columns=["growth_pricing_n"]).isna().all().all()
+    assert market.market_state({}, IDX).drop(columns=["growth_pricing_n", "usd_approx"]).isna().all().all()
 
 
 def test_positioning_burn_in_and_columns():
@@ -114,3 +114,13 @@ def test_loaders(tmp_path):
     assert s.index[0] == pd.Timestamp("2020-01-10")            # report Tuesday + 3
     assert s.iloc[0] == pytest.approx(10.0)                    # (200-100)/1000*100
     assert "VIXCLS" not in inp and "spx" not in inp            # missing series are omitted
+
+
+def test_dollar_flags_approximate_period_before_first_vintage():
+    usd = _walk(7, start=100, scale=0.1)
+    usd.attrs["first_vintage"] = pd.Timestamp("2005-06-01")
+    d = market.dollar({"DTWEXBGS": usd}, IDX)
+    assert d.loc[d.index < "2005-06-01", "usd_approx"].eq(d["usd_gap"].notna()[d.index < "2005-06-01"]).all()
+    assert not d.loc[d.index >= "2005-06-01", "usd_approx"].any()
+    assert d["usd_approx"].dtype == bool
+    assert not market.dollar({}, IDX)["usd_approx"].any()

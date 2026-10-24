@@ -200,9 +200,17 @@ tune it against asset returns.
 No definition changed.
 
 1. **Credit:** the frozen table says `BBB OAS − IG OAS`; the plan's C5 table said IG − BBB. Implemented as in this file.
-2. **Dollar valid-from:** the spec's "from 2006" assumed the full `DTWEXBGS` history. Its ALFRED vintages start
-   2019-02 and the series is revised (mean 0.96% in level), so under the E2 "drop" rule `usd_state` starts 2019-11.
-   Not changed; options are `pre_vintage="latest_lagged"` (labelled exploration) or accepting the short sample.
+2. **Dollar valid-from (researcher decision, 2026-10-24):** `DTWEXBGS` vintages start 2019-02-04 (the Fed
+   back-filled 2006-2018) and the series is revised (mean 0.96% in level; the 200-day-gap label differs from
+   the real-time one on 4.5% of days over 2019-2026; 63-day % change differs 0.12 pp on average). The
+   researcher chose to use the full history anyway: **2006 to 2019-02-03 uses the back-filled latest values,
+   available 10 days after each period; from 2019-02-04 on, real-time vintages with their real release dates.**
+   `usd_state` is therefore valid from 2006-10-18 (200-day window), and is **approximate before 2019-02**:
+   `market.dollar()` returns `usd_approx` = True on those days (3,208 days) and the input carries
+   `pre_vintage="latest_lagged"`. Implemented as `pit.PRE_VINTAGE_LATEST_LAGGED = {"DTWEXBGS": 10}`; this is
+   the one series that relaxes E2 by decision, and the reason is that no point-in-time history exists for it.
+   Results that use the dollar state before 2019 must say so. A sensitivity check against a DXY-style index
+   from spot FX is optional and not built.
 3. **Growth pricing** follows the ≥ 2 components rule of section 0, so its recipe has 2, 3, then 4
    components over its history (~1993, 1997, 2003). The count is stored as `growth_pricing_n`.
 4. **Positioning** is dated `report_date + 3` days, per this section, rather than the DB `release_date`.

@@ -67,12 +67,20 @@ def credit(inputs: dict[str, pd.Series], index: pd.DatetimeIndex) -> pd.DataFram
 
 
 def dollar(inputs: dict[str, pd.Series], index: pd.DatetimeIndex) -> pd.DataFrame:
-    """DTWEXBGS / its 200-day mean - 1; > 0 is `strong_usd`, else `weak_usd`. From 2006
-    (plus 200 days). A value of exactly 0 is `weak_usd`."""
+    """DTWEXBGS / its 200-day mean - 1; > 0 is `strong_usd`, else `weak_usd`. A value of
+    exactly 0 is `weak_usd`. From 2006 (plus 200 days).
+
+    Approximate before the series' first vintage (2019-02-04): those 2006-2018 values are
+    the Fed's back-filled latest values, available 10 days after each period, not what was
+    published then (see pit.PRE_VINTAGE_LATEST_LAGGED). `usd_approx` is True on those days;
+    against real-time vintages the label differs on ~4.5% of days (2019-2026)."""
     usd = _d(inputs, "DTWEXBGS", index)
+    first_vintage = inputs["DTWEXBGS"].attrs.get("first_vintage") if "DTWEXBGS" in inputs else None
     gap = usd / usd.rolling(MA_WINDOW, min_periods=MA_WINDOW).mean() - 1
     label = pd.Series(np.where(gap > 0, "strong_usd", "weak_usd"), index=index).where(gap.notna())
-    return pd.DataFrame({"usd_gap": gap, "usd_state": label})
+    approx = pd.Series(index < pd.Timestamp(first_vintage), index=index) if first_vintage is not None \
+        else pd.Series(False, index=index)
+    return pd.DataFrame({"usd_gap": gap, "usd_state": label, "usd_approx": approx.where(gap.notna(), False)})
 
 
 def volatility(inputs: dict[str, pd.Series], index: pd.DatetimeIndex) -> pd.DataFrame:
@@ -163,7 +171,7 @@ def positioning(inputs: dict[str, pd.Series], index: pd.DatetimeIndex) -> pd.Dat
 def market_state(inputs: dict[str, pd.Series], index: pd.DatetimeIndex) -> pd.DataFrame:
     """Every market variable above on a business-day `index`.
 
-    Columns: hy_oas, d_hy_oas, bbb_minus_ig, usd_gap, usd_state, vix, vol_regime,
+    Columns: hy_oas, d_hy_oas, bbb_minus_ig, usd_gap, usd_state, usd_approx, vix, vol_regime,
     equity_trend, growth_pricing, growth_pricing_n, inflation_pricing,
     policy_pricing, and one z-scored column per positioning key.
     """

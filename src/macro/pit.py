@@ -67,6 +67,18 @@ UNREVISED_SERIES: dict[str, int] = {
 # ALFRED recorded one. Not ICNSA / CCSA: their early prints are revised.
 USE_FIRST_RELEASE_DATE: frozenset[str] = frozenset({"CPILFENS", "CPIAUCNS", "DRTSCILM", "SAHMREALTIME"})
 
+# Series whose vintage history starts late but whose backfilled history is used anyway, by a
+# documented researcher decision: code -> lag in days (from the period) for the backfilled values.
+# Before the first vintage the latest values are used at period + lag; from the first vintage on
+# the real-time vintages (with their real release dates) are used. Output is flagged
+# pre_vintage="latest_lagged" in .attrs. Add a series only with a written decision.
+#   DTWEXBGS: first vintage 2019-02-04 (the Fed back-filled 2006-2018). Revised (weights update):
+#   against the real-time label, the latest-vintage 200-day-gap label differs on 4.5% of days
+#   (2019-2026). Real-time release lag is median 5, max 10 days; the backfill uses 10.
+PRE_VINTAGE_LATEST_LAGGED: dict[str, int] = {
+    "DTWEXBGS": 10,
+}
+
 # Series whose stored release_date is known to precede publication.
 # code -> extra business days. The ICE OAS series appear the next morning.
 RELEASE_LAG_OVERRIDES: dict[str, int] = {
@@ -139,6 +151,7 @@ def realtime(
     pre_vintage: PreVintage = "drop",
     daily: bool = False,
     label: str = "series",
+    pre_vintage_lag_days: int | None = None,
 ) -> pd.Series:
     """Apply `fn` to the series as published at each release date; keep the newest value.
 
@@ -158,6 +171,8 @@ def realtime(
                           release_date == period_date; suppresses the stamped-row warning and,
                           if no period has more than one release, takes a single-pass fast path.
         label:            Name used in warnings.
+        pre_vintage_lag_days: Lag for the backfilled values when pre_vintage="latest_lagged"
+                          (default: release_lag_days). Real-time values keep release_lag_days.
 
     Returns:
         Series indexed by availability date (unique, sorted), with
@@ -173,7 +188,7 @@ def realtime(
 
     lag = pd.Timedelta(days=release_lag_days)
 
-    if daily and not v.duplicated("period_date").any():
+    if daily and pre_vintage == "drop" and not v.duplicated("period_date").any():
         # Unrevised daily series (one release per period): for a causal fn the snapshot
         # at each release is just the series up to it, so apply fn once.
         res = fn(pd.Series(v["value"].to_numpy(dtype=float), index=pd.DatetimeIndex(v["period_date"])).sort_index())
@@ -206,7 +221,8 @@ def realtime(
 
     if backfill is not None:
         pre = backfill.dropna()
-        pre.index = pre.index + pd.Timedelta(days=release_lag_days)
+        pre_lag = release_lag_days if pre_vintage_lag_days is None else pre_vintage_lag_days
+        pre.index = pre.index + pd.Timedelta(days=pre_lag)
         pre = pre[pre.index < first_release + lag]
         out = pd.concat([pre, out[~out.index.isin(pre.index)]]).sort_index()
 
@@ -259,8 +275,14 @@ def pit_series(
 ) -> pd.Series:
     """Dispatch: unrevised() for codes in UNREVISED_SERIES, else realtime().
 
-    Applies RELEASE_LAG_OVERRIDES[code] as the extra lag for realtime().
+    Applies RELEASE_LAG_OVERRIDES[code] as the extra lag for realtime(). Codes in
+    PRE_VINTAGE_LATEST_LAGGED use their backfilled history (at that lag) before the
+    first vintage, whatever `pre_vintage` is.
     """
+    if code in PRE_VINTAGE_LATEST_LAGGED:
+        return realtime(vintages, fn, release_lag_days=RELEASE_LAG_OVERRIDES.get(code, 0),
+                        pre_vintage="latest_lagged", daily=daily, label=code,
+                        pre_vintage_lag_days=PRE_VINTAGE_LATEST_LAGGED[code])
     if code in UNREVISED_SERIES:
         return unrevised(vintages, fn, UNREVISED_SERIES[code], use_first_release=code in USE_FIRST_RELEASE_DATE)
     return realtime(vintages, fn, release_lag_days=RELEASE_LAG_OVERRIDES.get(code, 0),

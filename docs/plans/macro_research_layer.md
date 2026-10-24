@@ -390,10 +390,10 @@ history for them starts in 1998.
 and `load_market_inputs()` / `load_prices()` in `src/macro/inputs.py`; 9 tests (547 in the suite pass).
 Definitions follow spec section 3, with the clarifications in the spec's change log. Findings for review:
 
-- **Dollar starts in late 2019, not 2006.** `DTWEXBGS` vintages only begin 2019-02; under E2 "drop" the
-  `usd_state` (and C6 `dollar_trend`) is valid from 2019-11. The index *is* revised (first print vs latest:
-  mean 0.96% in level, max 1.9%; 63-day % change differs by 0.12 pp mean, 1.8 pp max), so it doesn't
-  qualify for `UNREVISED_SERIES`. Researcher decision needed (see the spec change log).
+- **Dollar (decision made 2026-10-24):** `DTWEXBGS` vintages begin 2019-02-04, but the researcher chose to use the
+  back-filled 2006-2018 values (latest vintage, 10-day lag) and the real-time vintages after. `usd_state` is valid
+  from 2006-10-18 and flagged approximate before 2019-02 (`usd_approx`); the label differs from real-time on
+  4.5% of days over 2019-2026. See the spec change log. Implemented via `pit.PRE_VINTAGE_LATEST_LAGGED`.
 - `growth_pricing` has 2 components from ~1993, 3 from 1997 (HY OAS), 4 from 2003 (copper/gold); `_n` is stored.
 - Positioning z-scores start 2009 (2006 data + 156-week burn-in); `inflation_pricing` 2006.
 - S&P 500 and Russell prices in the DB end 2026-10-02 (stale; refresh via `scripts/fetch_equity.py`).

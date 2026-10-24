@@ -258,3 +258,25 @@ def test_unrevised_first_release_date_used_where_real_and_lag_for_bulk_history()
     assert "ICNSA" not in USE_FIRST_RELEASE_DATE and "CPILFENS" in USE_FIRST_RELEASE_DATE
     assert pit_series(v, lambda s: s, "CPILFENS").index[-1] == real.index[-1]
     assert pit_series(v, lambda s: s, "ICNSA").index[-1] == pd.Timestamp("2010-06-01") + pd.Timedelta(days=19)
+
+
+# ── Backfilled history with a separate lag (PRE_VINTAGE_LATEST_LAGGED) ─────────
+
+def test_pre_vintage_lag_applies_only_to_backfill():
+    from src.macro.pit import PRE_VINTAGE_LATEST_LAGGED, pit_series, realtime
+    days = pd.bdate_range("2018-12-03", "2019-03-29")
+    rows = []
+    for d in days[days < "2019-02-05"]:   # bulk-loaded on the first vintage date, value = 100
+        rows.append((d, pd.Timestamp("2019-02-04"), 100.0))
+    for d in days[days >= "2019-02-05"]:   # then released 5 days after the period
+        rows.append((d, d + pd.Timedelta(days=5), 101.0))
+    v = pd.DataFrame(rows, columns=["period_date", "release_date", "value"])
+    out = realtime(v, lambda s: s, daily=True, pre_vintage="latest_lagged", pre_vintage_lag_days=10)
+    assert out.loc[pd.Timestamp("2018-12-13")] == 100.0 and pd.Timestamp("2018-12-12") not in out.index
+    assert out.loc[pd.Timestamp("2019-02-12")] == 101.0      # 2019-02-07 period + 5, not + 10
+    assert out.attrs["pre_vintage"] == "latest_lagged"
+    assert out.attrs["first_vintage"] == pd.Timestamp("2019-02-04")
+    assert "DTWEXBGS" in PRE_VINTAGE_LATEST_LAGGED
+    pit = pit_series(v, lambda s: s, "DTWEXBGS", daily=True)       # default pre_vintage="drop"
+    assert pit.index.min() == pd.Timestamp("2018-12-13")           # policy overrides the drop
+    assert pit_series(v, lambda s: s, "OTHER", daily=True).index.min() >= pd.Timestamp("2019-02-04")
