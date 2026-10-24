@@ -18,7 +18,7 @@ Sample size. Regime statistics have as many independent observations as there ar
 bootstrap resamples whole episodes.
 
     forward_regression(state, returns)             R_{t→t+h} on X_t, HAC lag >= h + non-overlapping check
-    performance_by_regime(labels, returns)         Conditioner.by_regime() columns + episodes
+    performance_by_regime(labels, returns)         Conditioner.by_regime() table (incl. episode columns)
     episode_bootstrap_ci(labels, returns)          CI for mean return and Sharpe, resampling episodes
     forward_returns_by_regime(labels, returns)     forward return after entering each regime
     divergence(macro_z, market_z)                  gap, its expanding z, and gap terciles
@@ -45,6 +45,8 @@ MIN_OBS = 30                 # fewer aligned observations than this -> NaN stati
 MIN_EPISODES = 5             # below this the bootstrap and tables warn
 GAP_LABELS = ["market_ahead", "in_line", "data_ahead"]   # gap terciles: low / mid / high
 MACRO_RAW = {"pi_impulse", "P_impulse"}                   # state columns in pp, not z-scores
+STATE_VECTOR = ["G_level", "G_impulse", "pi_level", "pi_impulse", "L_level", "L_impulse",
+                "P_stance", "P_impulse", "FC", "FC_impulse", "CS", "CS_impulse"]   # macro_state() outputs
 DIVERGENCE_DIMENSIONS = {    # dimension -> (macro_state column, market_state column)
     "growth": ("G_impulse", "growth_pricing"),
     "inflation": ("pi_impulse", "inflation_pricing"),
@@ -165,22 +167,20 @@ def performance_by_regime(
     rf: float | pd.Series = 0.0,
     periods_per_year: int = 252,
 ) -> pd.DataFrame:
-    """Conditioner.by_regime() columns (shared helper) plus n_episodes and mean_episode_length.
+    """Conditioner.by_regime() columns (the shared `regime_performance` helper, including
+    n_episodes and mean_episode_length).
 
     Labels are reindexed to the returns' index; episodes are counted on that aligned series (a
     NaN ends an episode) and their length is in rows of the returns index.
 
     Returns:
-        DataFrame indexed by label (order of first appearance), columns REGIME_PERF_COLS +
-        n_episodes, mean_episode_length. Empty if there are no labels in the window.
+        DataFrame indexed by label (order of first appearance), columns REGIME_PERF_COLS.
+        Empty if there are no labels in the window.
     """
     aligned = _align_labels(labels, returns)
     table = regime_performance(aligned, returns, rf, periods_per_year)
     if table.empty:
-        return pd.DataFrame(columns=REGIME_PERF_COLS + ["n_episodes", "mean_episode_length"])
-    ep = episodes(aligned).groupby("label")["length"].agg(["count", "mean"])
-    table["n_episodes"] = ep["count"].reindex(table.index).astype(float)
-    table["mean_episode_length"] = ep["mean"].reindex(table.index)
+        return table
     few = table.index[table["n_episodes"] < MIN_EPISODES].tolist()
     if few:
         logger.warning(f"[performance_by_regime] fewer than {MIN_EPISODES} episodes for {few}")

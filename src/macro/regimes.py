@@ -309,6 +309,19 @@ MACRO_REGIME_NAMES = ["growth_inflation", "growth_level", "policy", "financial_c
                       "curve_dynamics", "dollar_trend"]
 
 
+def build_regimes(names: list[str], database=None, panel: StatePanel | None = None) -> list[Regime]:
+    """Regime instances for `names` (REGISTRY keys), in order. The macro-layer ones share one
+    state panel, built lazily, so the state is computed once however many of them are asked for.
+    Raises KeyError for an unknown name."""
+    unknown = [n for n in names if n not in REGIME_REGISTRY]
+    if unknown:
+        raise KeyError(f"unknown regimes {unknown}; expected {list(REGIME_REGISTRY)}")
+    if panel is None and any(n in MACRO_REGIME_NAMES for n in names):
+        panel = StatePanel(database=database)
+    return [REGIME_REGISTRY[n](panel=panel, database=database) if n in MACRO_REGIME_NAMES
+            else REGIME_REGISTRY[n](database=database) for n in names]
+
+
 def macro_regimes(database=None, start: str | None = None, end: str | None = None,
                   names: list[str] | None = None, panel: StatePanel | None = None) -> list[Regime]:
     """The macro-layer regimes (or `names` from MACRO_REGIME_NAMES), sharing one state panel.

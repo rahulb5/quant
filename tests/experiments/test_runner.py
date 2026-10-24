@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 
 import data.repository as repository_module
+import src.db.client as client_module
 import src.experiments.registry as registry_module
 import src.experiments.runner as runner_module
 import src.experiments.trials as trials_module
@@ -23,6 +24,7 @@ from src.db.client import Database
 from src.experiments.config import (
     BacktestConfig,
     DataConfig,
+    DiagnosticsConfig,
     ExperimentConfig,
     PortfolioConfig,
     SignalConfig,
@@ -43,6 +45,7 @@ def mem_db(monkeypatch) -> Database:
     monkeypatch.setattr(universe_module, "db", database)
     monkeypatch.setattr(repository_module, "db", database)
     monkeypatch.setattr(trials_module, "db", database)
+    monkeypatch.setattr(client_module, "db", database)   # macro regimes resolve the DB singleton lazily
     yield database
     database.close()
 
@@ -248,3 +251,86 @@ def test_run_experiment_without_family_logs_nothing_and_still_completes(tmp_path
     _run_with_family(tmp_path, mem_db, monkeypatch, None)
     assert mem_db.query("SELECT COUNT(*) AS n FROM trials")[0]["n"] == 0
     assert get_experiment("EXP-0001")["status"] == "complete"
+
+
+class _Blocks:
+    """A stub regime: alternating x / y blocks of `n` days over 2024."""
+
+    def __init__(self, name, layer, n=14):
+        self.name, self.layer, self._n = name, layer, n
+
+    def labels(self):
+        idx = pd.date_range("2023-12-01", periods=160)
+        return pd.Series([("x", "y")[(i // self._n) % 2] for i in range(len(idx))], index=idx, dtype=object)
+
+
+def _run_with_diagnostics(tmp_path, mem_db, monkeypatch, diagnostics):
+    result, path = _run_with_family(tmp_path, mem_db, monkeypatch, None)
+    cfg = load_config(str(path))
+    cfg.diagnostics = diagnostics
+    cfg.status = "draft"
+    save_config(cfg, str(path))
+    return run_experiment(str(path)), path
+
+
+def test_run_experiment_passes_configured_regimes_and_writes_episodes_and_layers(tmp_path, mem_db, monkeypatch):
+    seen = {}
+
+    def fake_build(names, database=None, panel=None):
+        seen["names"], seen["panel"] = list(names), panel
+        return [_Blocks("policy", "macro"), _Blocks("volatility", "market")]
+
+    monkeypatch.setattr(runner_module, "build_regimes", fake_build)
+    result, path = _run_with_diagnostics(tmp_path, mem_db, monkeypatch,
+                                         DiagnosticsConfig(regimes=["policy", "volatility"]))
+    import json
+
+    assert seen["names"] == ["policy", "volatility"] and seen["panel"] is None
+    diag = json.loads((path.parent / "diagnostics.json").read_text())
+    assert diag["regime_layers"] == {"policy": "macro", "volatility": "market"}
+    row = diag["by_regime"]["policy"]["x"]
+    assert row["n_episodes"] >= 1 and row["mean_episode_length"] >= 1
+    assert "state_exposure" not in diag
+
+
+def test_run_experiment_default_regimes_are_the_whole_registry(tmp_path, mem_db, monkeypatch):
+    from src.macro.regimes import REGIME_REGISTRY
+
+    import json
+
+    result, path = _run_with_family(tmp_path, mem_db, monkeypatch, None)
+    diag = json.loads((path.parent / "diagnostics.json").read_text())
+    assert list(diag["regime_layers"]) == list(REGIME_REGISTRY)
+    assert set(diag["regime_layers"].values()) == {"macro", "market"}
+
+
+def test_run_experiment_state_exposure_is_optional(tmp_path, mem_db, monkeypatch):
+    from src.macro.analysis import STATE_VECTOR
+    from src.macro.regimes import StatePanel
+
+    import json
+
+    idx = pd.bdate_range("2023-12-01", periods=200)          # covers the 2024 strategy dates
+    frame = pd.DataFrame({c: range(len(idx)) for c in STATE_VECTOR}, index=idx, dtype=float)
+    monkeypatch.setattr(runner_module, "StatePanel", lambda: StatePanel.from_frame(frame))
+    monkeypatch.setattr(runner_module, "build_regimes", lambda names, database=None, panel=None: [])
+    _, path = _run_with_diagnostics(tmp_path, mem_db, monkeypatch, DiagnosticsConfig(state_exposure=True))
+    diag = json.loads((path.parent / "diagnostics.json").read_text())
+    assert set(diag["state_exposure"]) == {"const", *STATE_VECTOR}
+    assert {"coef", "t_stat_hac", "n_obs"} <= set(diag["state_exposure"]["G_level"])
+    assert diag["state_exposure"]["G_level"]["n_obs"] > 0          # the state aligned with the returns
+
+
+def test_state_exposure_regresses_next_period_returns_on_state():
+    import numpy as np
+
+    from src.macro.analysis import STATE_VECTOR
+    from src.macro.regimes import StatePanel
+
+    rng = np.random.default_rng(0)
+    idx = pd.bdate_range("2000-01-03", periods=1500)
+    frame = pd.DataFrame(rng.standard_normal((len(idx), len(STATE_VECTOR))), index=idx, columns=STATE_VECTOR)
+    r = pd.Series(0.001 * frame["G_impulse"].shift(1).fillna(0) + 0.0005 * rng.standard_normal(len(idx)), index=idx)
+    out = runner_module._state_exposure(StatePanel.from_frame(frame), r)
+    assert out["G_impulse"]["coef"] == pytest.approx(0.001, rel=0.1) and out["G_impulse"]["t_stat_hac"] > 10
+    assert abs(out["pi_level"]["t_stat_hac"]) < 4

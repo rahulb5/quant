@@ -1,6 +1,6 @@
 # Macro research layer — implementation plan (blended)
 
-**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0–C8 and C10 done** (see the outcome blocks; C6 amended 2026-10-24, family v2 frozen in `docs/research/macro_state_definitions_v2.md`). **Next:** C9, C11, C12.
+**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0–C8 and C10 done; C9 built except the EXP-0001/2 re-runs** (see the outcome blocks; C6 amended 2026-10-24, family v2 frozen in `docs/research/macro_state_definitions_v2.md`). **Next:** C9 re-runs (researcher decision), C11, C12.
 Replaces Part B of `docs/plans/cot_fix_and_macro_regimes.md`. Part A there (the COT fix) is complete
 and is a prerequisite.
 **Inputs:** the original Part B, and `docs/Macro Research Layer — Design Review.md`. Where they
@@ -480,7 +480,8 @@ Built `src/macro/analysis.py` (pure; no DB): `forward_returns`, `forward_regress
 `episode_bootstrap_ci`, `forward_returns_by_regime`, `divergence`, `pricing_divergence`, `divergence_forward_returns`,
 `episodes`, `transition_matrix`, `regime_durations`, `current_regime`. The per-label body of `Conditioner.by_regime()`
 is now the module-level `src.backtest.conditioning.regime_performance()` (+ `REGIME_PERF_COLS`), shared by both; a test
-checks the two give identical frames. Tests: 24 new in `tests/macro/test_analysis.py` (C13's two named cases, truncation
+checks the two give identical frames. (C9 then moved `n_episodes` and `mean_episode_length` into that helper, so
+`performance_by_regime` no longer adds them itself.) Tests: 24 new in `tests/macro/test_analysis.py` (C13's two named cases, truncation
 invariance of the divergence outputs on aligned and mixed grids, no filling of sparse state); `tests/macro/test_analysis.py`
 + `tests/backtest` 333 passed. Smoke run on the live DB (shapes only, no return numbers looked at): every function
 runs for all six macro-layer regimes against S&P 500 returns; divergence `gap_z` valid from 1993-09 (growth), 1982-06
@@ -571,6 +572,40 @@ As in the original B5, with the C6 registry:
 - New, optional: a "state exposure" table with the strategy's daily returns regressed on the state
   vector (C7.1 at `h = 1`).
 - Re-run EXP-0001 and EXP-0002 for the new diagnostics; headline metrics must not change.
+
+### C9 outcome (2026-10-24)
+
+Built, **except the EXP-0001 / EXP-0002 re-runs** (below). `ExperimentConfig.diagnostics` (`DiagnosticsConfig`:
+`regimes`, default every `REGIME_REGISTRY` key, unknown names rejected; `state_exposure`, default off) is not part of the
+trial identity (test) and old configs load with the defaults. `regimes.build_regimes(names)` builds the instances, sharing
+one `StatePanel` among the macro-layer ones; `run_experiment()` passes them to `run_backtest(regimes=...)` and writes
+`regime_layers` (name -> layer) and, if enabled, `state_exposure` into `diagnostics.json`. `n_episodes` and
+`mean_episode_length` are now columns of the shared `regime_performance()` table, so `Conditioner.by_regime()` (and
+`BacktestReport.by_regime`) have 9 columns instead of 7; episodes are counted on labels aligned to the strategy's own dates,
+so lengths are in strategy periods (weekly for EXP-0001). `artifacts.regime_table()` and the Diagnostics tab show one row
+per regime label, grouped by layer (macro, market), with `n_episodes`; pre-C9 diagnostics files load under "unassigned".
+`analysis.STATE_VECTOR` lists the 12 `macro_state()` columns used by the state-exposure table. Tests: 12 new (config 3,
+regimes 2, artifacts 1, runner 4, conditioning 2, dashboard 1) plus the C7 test updated for the shared columns; 656 pass
+outside `tests/hooks` (those fail only while a `/plan-step` scope is active). The runner test fixture now patches the DB
+singleton to the in-memory DB, because the macro regimes resolve it lazily and were reading `data/quant.db` (9 s per run).
+
+Choices where the plan was open:
+- **State exposure** regresses the strategy's net return at t+1 on the state at t (`forward_regression`, h = 1, HAC lag 1),
+  all 12 state columns jointly. Columns are in mixed units (pp and z), so coefficients are not comparable across rows.
+- Regime order in `diagnostics.json` follows the registry (macro regimes first, then volatility / rates_curve / equity_trend).
+
+Review (spec-conformance + pit, one round): no look-ahead; the pit reviewer also rebuilt the panel and all six macro regimes
+truncated at three release dates on the live DB: 0 mismatches. Fixed in-diff: a vacuous state-exposure runner test (the stub
+state did not overlap the strategy dates), two stale docstrings, the dashboard caption (units), and a silent risk that
+strategy dates missing from a regime's label calendar (e.g. calendar month-ends) split one regime into many episodes, which
+now logs a warning (`Conditioner._regime_labels`) with a test. Not acted on: see the questions below.
+
+**Open for the researcher:** (1) the plan bullet "Re-run EXP-0001 and EXP-0002 for the new diagnostics; headline metrics must
+not change" is not done: both are `status: complete` (guard G2), and a re-run rewrites their results, diagnostics, charts,
+research note and config; overwrite them or create new EXP ids? (2) State exposure timing: next-period (as built) or
+contemporaneous? "Daily" does not hold for EXP-0001 (weekly). (3) Every run now builds the full macro `StatePanel` (1954 to
+today) because the default includes the macro regimes, so a failing macro input fails `run_experiment`; keep it fail-loud, or
+fall back to the market-layer regimes with a warning?
 
 ## C10. Trial ledger
 

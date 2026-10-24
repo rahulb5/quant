@@ -325,3 +325,26 @@ def test_event_flags_are_truncation_invariant():
     full = fl.event_flags(f, {"sahm": sahm, "t10y3m": t10}, IDX)
     trunc = fl.event_flags(f.loc[:cut], {"sahm": sahm[sahm.index <= cut], "t10y3m": t10[:cut]}, IDX[IDX <= cut])
     pd.testing.assert_frame_equal(full.loc[:cut], trunc)
+
+
+def test_build_regimes_keeps_order_and_shares_one_panel():
+    from src.backtest.regimes import VolRegime
+    from src.macro.regimes import (
+        CurveDynamicsRegime, PolicyRegime, REGIME_REGISTRY, StatePanel, build_regimes,
+    )
+
+    out = build_regimes(["volatility", "policy", "curve_dynamics"])
+    assert [r.name for r in out] == ["volatility", "policy", "curve_dynamics"]
+    assert isinstance(out[0], VolRegime) and isinstance(out[1], PolicyRegime) and isinstance(out[2], CurveDynamicsRegime)
+    assert out[1]._panel is out[2]._panel and isinstance(out[1]._panel, StatePanel)
+    assert [r.name for r in build_regimes(list(REGIME_REGISTRY))] == list(REGIME_REGISTRY)
+    assert build_regimes([]) == []
+    with pytest.raises(KeyError, match="nope"):
+        build_regimes(["policy", "nope"])
+
+
+def test_build_regimes_uses_a_supplied_panel():
+    from src.macro.regimes import StatePanel, build_regimes
+
+    panel = StatePanel.from_frame(pd.DataFrame())
+    assert all(r._panel is panel for r in build_regimes(["policy", "dollar_trend"], panel=panel))

@@ -157,6 +157,41 @@ def load_experiment(experiment_id: str, root: str | Path | None = None) -> Exper
     )
 
 
+LAYER_ORDER = ("macro", "market")
+
+
+def regime_table(diagnostics: dict) -> pd.DataFrame:
+    """Diagnostics "Performance by regime" as one row per regime label, grouped by layer.
+
+    Rows are a MultiIndex (layer, regime, label), ordered macro, market, then any other layer,
+    regimes in the order they were stored; columns are whatever the stored tables carry
+    (ann_return ... n_obs, and n_episodes / mean_episode_length for runs from C9 on). Older
+    diagnostics.json files have no "regime_layers": their regimes are put under "unassigned".
+    Treat n_episodes, not n_obs, as the sample size of a regime row. Empty frame if there is
+    nothing stored.
+    """
+    by_regime = diagnostics.get("by_regime") or {}
+    layers = diagnostics.get("regime_layers") or {}
+    frames = {}
+    for regime, table in by_regime.items():
+        df = pd.DataFrame(table).T      # stored as {label: {metric: value}}
+        if not df.empty:
+            frames[regime] = df
+    if not frames:
+        return pd.DataFrame()
+    rank = {name: i for i, name in enumerate(LAYER_ORDER)}
+    position = {r: i for i, r in enumerate(frames)}
+    ordered = sorted(frames, key=lambda r: (rank.get(layers.get(r, "unassigned"), len(rank)), position[r]))
+    parts = []
+    for regime in ordered:
+        df = frames[regime].copy()
+        df.index = pd.MultiIndex.from_arrays(
+            [[layers.get(regime, "unassigned")] * len(df), [regime] * len(df), df.index],
+            names=["layer", "regime", "label"])
+        parts.append(df)
+    return pd.concat(parts)
+
+
 def artifacts_mtime(root: str | Path | None = None) -> float:
     """Latest mtime across experiment files; a cache key for the dashboard."""
     latest = 0.0

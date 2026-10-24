@@ -8,6 +8,7 @@ from src.experiments.config import (
     BacktestConfig,
     ClassificationConfig,
     DataConfig,
+    DiagnosticsConfig,
     ExperimentConfig,
     PortfolioConfig,
     SignalConfig,
@@ -130,3 +131,37 @@ def test_round_trip_without_classification(tmp_path):
 def test_invalid_classification_value_raises(field):
     with pytest.raises(ValueError, match=f"classification.{field}.*allowed"):
         _classification(**{field: "bogus"})
+
+
+def test_diagnostics_defaults_to_every_registered_regime_and_roundtrips(tmp_path):
+    from src.macro.regimes import REGIME_REGISTRY
+
+    cfg = _sample_config()
+    assert cfg.diagnostics.regimes == list(REGIME_REGISTRY) and cfg.diagnostics.state_exposure is False
+    cfg.diagnostics = DiagnosticsConfig(regimes=["policy", "volatility"], state_exposure=True)
+    save_config(cfg, str(tmp_path / "config.yaml"))
+    loaded = load_config(str(tmp_path / "config.yaml"))
+    assert loaded.diagnostics == cfg.diagnostics
+
+
+def test_diagnostics_rejects_unknown_regime_and_old_configs_load_with_defaults(tmp_path):
+    from src.macro.regimes import REGIME_REGISTRY
+
+    with pytest.raises(ValueError, match="not_a_regime"):
+        DiagnosticsConfig(regimes=["policy", "not_a_regime"])
+    path = tmp_path / "config.yaml"
+    save_config(_sample_config(), str(path))
+    text = path.read_text()
+    path.write_text(text[:text.index("diagnostics:")] + text[text.index("status:"):])   # a pre-C9 file
+    assert "diagnostics" not in path.read_text()
+    assert load_config(str(path)).diagnostics.regimes == list(REGIME_REGISTRY)
+
+
+def test_diagnostics_section_does_not_change_trial_identity():
+    from dataclasses import replace
+
+    from src.experiments.trials import config_hash, experiment_params
+
+    a = _sample_config()
+    b = replace(a, diagnostics=DiagnosticsConfig(regimes=["policy"], state_exposure=True))
+    assert config_hash(experiment_params(a)) == config_hash(experiment_params(b))

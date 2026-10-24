@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.backtest.conditioning import Conditioner
+from src.backtest.conditioning import Conditioner, _episode_stats
 from src.backtest.performance import PerformanceReport
 from src.db.client import Database
 
@@ -289,9 +289,15 @@ class TestByRegime:
             assert "calmar" not in df.columns, f"{name} has calmar"
 
     def test_expected_columns(self, cond: Conditioner):
-        expected = {"ann_return", "ann_vol", "sharpe", "t_stat", "hit_rate", "pct_time", "n_obs"}
+        expected = {"ann_return", "ann_vol", "sharpe", "t_stat", "hit_rate", "pct_time", "n_obs",
+                    "n_episodes", "mean_episode_length"}
         for name, df in cond.by_regime().items():
             assert set(df.columns) == expected, f"{name}: columns mismatch"
+
+    def test_episode_columns_count_runs(self, cond: Conditioner):
+        for name, df in cond.by_regime().items():
+            assert (df["n_episodes"] >= 1).all(), name
+            assert (df["mean_episode_length"] >= 1).all(), name
 
     def test_pct_time_sums_to_1(self, cond: Conditioner):
         for name, df in cond.by_regime().items():
@@ -648,3 +654,34 @@ class TestGracefulDegradation:
             assert c.factor_regression() == {}
         finally:
             db.close()
+
+
+def test_episode_stats_counts_maximal_runs_and_nan_breaks():
+    s = pd.Series(["a", "a", "b", np.nan, "b", "b", "b", "a"], dtype=object)
+    assert _episode_stats(s) == {"a": (2, 1.5), "b": (2, 2.0)}
+    assert _episode_stats(pd.Series([], dtype=object)) == {}
+    assert _episode_stats(pd.Series([np.nan, np.nan], dtype=object)) == {}
+
+
+def test_conditioner_warns_when_strategy_dates_are_missing_from_the_label_calendar(caplog):
+    """Month-end calendar dates on weekends have no label on a business-day label series: each one
+    would split a constant regime into extra episodes."""
+    bdays = pd.bdate_range("2015-01-01", "2019-12-31")
+    lab = pd.Series("a", index=bdays, dtype=object)
+    spine = pd.Series(0.001, index=pd.date_range("2015-01-31", "2019-12-31", freq="ME"))
+
+    class _R:
+        name = "stub"
+
+        def labels(self):
+            return lab
+
+    class _Ref:
+        def available(self):
+            return []
+
+    with caplog.at_level(logging.WARNING):
+        cond = Conditioner(spine, reference=_Ref(), regimes=[_R()])
+        table = cond.by_regime()["stub"]
+    assert any("no label" in r.message for r in caplog.records)
+    assert table.loc["a", "n_episodes"] > 1                    # the overstatement the warning is about

@@ -119,7 +119,7 @@ def test_performance_by_regime_counts_episodes():
     lbl = _blocks([("a", 50), ("b", 30), ("a", 40), ("b", 80), ("c", 10)])
     r = pd.Series(0.001, index=lbl.index)
     t = performance_by_regime(lbl, r)
-    assert list(t.columns) == REGIME_PERF_COLS + ["n_episodes", "mean_episode_length"]
+    assert list(t.columns) == REGIME_PERF_COLS
     assert t.loc["a", "n_episodes"] == 2 and t.loc["a", "mean_episode_length"] == 45
     assert t.loc["b", "n_episodes"] == 2 and t.loc["b", "n_obs"] == 110
     assert t.loc["c", "n_episodes"] == 1

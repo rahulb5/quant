@@ -62,13 +62,31 @@ from src.backtest.regimes import Regime, default_regimes
 from src.shared.utils import logger
 
 _JOINT_COVERAGE_WARN = 0.60  # warn if joint inner join < 60 % of strategy obs
+_UNLABELLED_WARN = 0.01       # warn if > 1 % of in-range strategy dates lack a regime label
 _MIN_REG_OBS = 30             # minimum observations required for OLS
 
 
 REGIME_PERF_COLS = [
     "ann_return", "ann_vol", "sharpe", "t_stat",
-    "hit_rate", "pct_time", "n_obs",
+    "hit_rate", "pct_time", "n_obs", "n_episodes", "mean_episode_length",
 ]
+
+
+def _episode_stats(labels: pd.Series) -> dict[str, tuple[int, float]]:
+    """label -> (number of episodes, mean episode length in rows). An episode is a maximal run of
+    one label; a NaN row ends a run and is not an episode."""
+    counts: dict[str, list[int]] = {}
+    cur, run = None, 0
+    for v in list(labels.to_numpy(dtype=object)) + [None]:
+        missing = v is None or (isinstance(v, float) and np.isnan(v))
+        if cur is not None and (missing or v != cur):
+            c = counts.setdefault(cur, [0, 0])
+            c[0] += 1
+            c[1] += run
+            cur, run = None, 0
+        if not missing:
+            cur, run = (v, 1) if cur is None else (cur, run + 1)
+    return {k: (n, total / n) for k, (n, total) in counts.items()}
 
 
 def regime_performance(
@@ -92,14 +110,17 @@ def regime_performance(
     Returns:
         DataFrame indexed by label (order of first appearance), columns
         ``REGIME_PERF_COLS``. ``pct_time`` is the label's share of labelled
-        dates. Labels with fewer than 2 returns get NaN statistics. Empty
-        DataFrame if there are no labels.
+        dates. ``n_episodes`` / ``mean_episode_length`` count maximal runs of
+        the label in ``labels`` (length in rows of ``labels``, so strategy
+        periods when called from the Conditioner). Labels with fewer than 2
+        returns get NaN return statistics. Empty DataFrame if there are no labels.
     """
     valid_labels = labels.dropna()
     if valid_labels.empty:
         return pd.DataFrame(columns=REGIME_PERF_COLS)
     total_labeled = len(valid_labels)
     label_order = list(dict.fromkeys(valid_labels))
+    episode_stats = _episode_stats(labels)
 
     rows: dict[str, dict] = {}
     for lbl in label_order:
@@ -117,6 +138,8 @@ def regime_performance(
                 "hit_rate": float("nan"),
                 "pct_time": pct_time,
                 "n_obs": float(n_obs),
+                "n_episodes": float(episode_stats[lbl][0]),
+                "mean_episode_length": episode_stats[lbl][1],
             }
             continue
 
@@ -129,6 +152,8 @@ def regime_performance(
             "hit_rate": hit_rate(slice_ret),
             "pct_time": pct_time,
             "n_obs": float(n_obs),
+            "n_episodes": float(episode_stats[lbl][0]),
+            "mean_episode_length": episode_stats[lbl][1],
         }
 
     return pd.DataFrame.from_dict(rows, orient="index")[REGIME_PERF_COLS]
@@ -237,7 +262,16 @@ class Conditioner:
                         f"labels — omitting from by_regime()."
                     )
                     continue
-                result[regime.name] = lbls.reindex(self._spine.index)
+                aligned = lbls.reindex(self._spine.index)
+                first, last = lbls.first_valid_index(), lbls.last_valid_index()
+                covered = aligned.loc[first:last] if first is not None else aligned.iloc[0:0]
+                if len(covered) and covered.isna().mean() > _UNLABELLED_WARN:
+                    logger.warning(
+                        f"[Conditioner] Regime '{regime.name}': {covered.isna().mean():.0%} of strategy "
+                        f"dates inside the regime's label range have no label (dates missing from the "
+                        f"label calendar?). A NaN ends an episode, so n_episodes may be overstated."
+                    )
+                result[regime.name] = aligned
             self.__regime_labels = result
         return self.__regime_labels
 

@@ -109,6 +109,33 @@ class ValidationConfig:
             )
 
 
+def _all_regime_names() -> list[str]:
+    from src.macro.regimes import REGIME_REGISTRY   # lazy: keeps config import light
+
+    return list(REGIME_REGISTRY)
+
+
+@dataclass
+class DiagnosticsConfig:
+    """What the Diagnostics tab conditions on.
+
+    `regimes` are `REGIME_REGISTRY` keys (src/macro/regimes.py) passed to run_backtest();
+    the default is every registered regime (macro and market layers). `state_exposure` adds a
+    table regressing the strategy's next-period returns on the macro state vector
+    (src.macro.analysis.forward_regression at h = 1); off by default. Neither changes the
+    trial identity (src.experiments.trials.experiment_params ignores this section).
+    """
+
+    regimes: list[str] = field(default_factory=_all_regime_names)
+    state_exposure: bool = False
+
+    def __post_init__(self) -> None:
+        known = _all_regime_names()
+        unknown = [r for r in self.regimes if r not in known]
+        if unknown:
+            raise ValueError(f"diagnostics.regimes {unknown} not in REGIME_REGISTRY {known}")
+
+
 @dataclass
 class RobustnessConfig:
     """Sweep settings and verdict thresholds for src/experiments/robustness.py.
@@ -155,6 +182,7 @@ class ExperimentConfig:
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     validation: ValidationConfig = field(default_factory=ValidationConfig)
     robustness: RobustnessConfig = field(default_factory=RobustnessConfig)
+    diagnostics: DiagnosticsConfig = field(default_factory=DiagnosticsConfig)
     status: str = "draft"
     conclusion: str | None = None
     git_sha: str | None = None
@@ -178,6 +206,7 @@ def load_config(path: str) -> ExperimentConfig:
         backtest=BacktestConfig(**raw.get("backtest", {})),
         validation=ValidationConfig(**raw.get("validation", {})),
         robustness=RobustnessConfig(**raw.get("robustness", {})),
+        diagnostics=DiagnosticsConfig(**raw.get("diagnostics", {})),
         status=raw.get("status", "draft"),
         conclusion=raw.get("conclusion"),
         git_sha=raw.get("git_sha"),

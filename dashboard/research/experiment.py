@@ -11,6 +11,7 @@ import yaml
 from dashboard.components import (
     PALETTE, chip, fmt_num, fmt_pct, list_experiments, load_experiment, plot, verdict_badge,
 )
+from src.experiments.artifacts import regime_table
 
 experiment_id = st.query_params.get("id")
 known = [s.experiment_id for s in list_experiments()]
@@ -173,12 +174,20 @@ with tab_diag:
         st.info("No diagnostics.json for this experiment.")
     else:
         st.subheader("Performance by regime")
-        regime_tbl = pd.concat(
-            {name: pd.DataFrame(labels) for name, labels in d["by_regime"].items()},
-            axis=1,
-        )
-        regime_tbl.columns = [f"{name}: {label}" for name, label in regime_tbl.columns]
-        st.dataframe(regime_tbl, width="stretch")
+        regime_tbl = regime_table(d)
+        if regime_tbl.empty:
+            st.caption("No regime tables stored for this experiment.")
+        else:
+            st.dataframe(regime_tbl, width="stretch")
+            st.caption("One row per regime label, grouped by layer. A regime has as many independent "
+                       "observations as episodes: read n_episodes, not n_obs. Episodes are counted on the "
+                       "strategy's own dates, so lengths are in strategy periods.")
+
+        exposure = d.get("state_exposure")
+        if exposure:
+            st.subheader("State exposure (next-period return on the macro state vector)")
+            st.dataframe(pd.DataFrame(exposure).T.rename(columns={"t_stat_hac": "t (Newey-West)"})
+                         [["coef", "t (Newey-West)", "n_obs", "r_squared"]], width="stretch")
 
         fr = d["factor_regression"]
         st.subheader("Factor regression")

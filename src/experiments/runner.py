@@ -41,6 +41,8 @@ from src.experiments.portfolio import decile_long_short, equal_weight_long_baske
 from src.experiments.registry import update_experiment
 from src.experiments.report import render_research_note
 from src.experiments.universe import UNIVERSE_REGISTRY
+from src.macro.analysis import STATE_VECTOR, forward_regression
+from src.macro.regimes import StatePanel, build_regimes
 from src.shared.utils import logger
 
 PORTFOLIO_REGISTRY: dict[str, Any] = {
@@ -145,7 +147,22 @@ def _apply_holdout(
     return weights[weights.index < cutoff], asset_returns[asset_returns.index < cutoff]
 
 
-def _write_artifacts(config: ExperimentConfig, report: BacktestReport, experiment_dir: Path) -> None:
+def _state_exposure(panel: StatePanel, net_returns: pd.Series) -> dict:
+    """Next-period strategy returns regressed on the macro state vector (analysis.forward_regression
+    at h = 1, HAC lag 1): {term: {coef, t_stat_hac, n_obs, r_squared, ...}}. With fewer than 30
+    aligned rows every statistic is None (n_obs is still reported)."""
+    cols = [c for c in STATE_VECTOR if c in panel.frame.columns]
+    table = forward_regression(panel.frame[cols], net_returns, horizons=(1,))
+    return _to_jsonable(table.loc[1].to_dict("index"))
+
+
+def _write_artifacts(
+    config: ExperimentConfig,
+    report: BacktestReport,
+    experiment_dir: Path,
+    regimes: list | None = None,
+    panel: StatePanel | None = None,
+) -> None:
     metrics = report.performance.metrics()
     exec_summary = report.execution.summary(periods_per_year=config.backtest.periods_per_year)
 
@@ -163,12 +180,15 @@ def _write_artifacts(config: ExperimentConfig, report: BacktestReport, experimen
     diagnostics = {
         "yearly": _to_jsonable(report.yearly),
         "by_regime": _to_jsonable(report.by_regime),
+        "regime_layers": {r.name: getattr(r, "layer", "market") for r in (regimes or [])},
         "correlations": _to_jsonable(report.correlations),
         "betas": _to_jsonable(report.betas),
         "factor_regression": _to_jsonable(report.factor_regression),
         "rolling_corr": _to_jsonable(report.rolling_corr),
         "conditional_perf": _to_jsonable(report.conditional_perf),
     }
+    if panel is not None:
+        diagnostics["state_exposure"] = _state_exposure(panel, report.execution.net_returns)
     (experiment_dir / "diagnostics.json").write_text(json.dumps(diagnostics, indent=2))
 
     charts_dir = experiment_dir / "charts"
@@ -224,6 +244,8 @@ def run_experiment(config_path: str) -> ExperimentResult:
         weights, asset_returns = _build_panels(config, signal_df)
         weights, asset_returns = _apply_holdout(weights, asset_returns, config.validation.holdout_start)
 
+        panel = StatePanel() if config.diagnostics.state_exposure else None
+        regimes = build_regimes(config.diagnostics.regimes, panel=panel)
         report = run_backtest(
             weights,
             asset_returns,
@@ -231,11 +253,12 @@ def run_experiment(config_path: str) -> ExperimentResult:
             lag=config.backtest.lag,
             name=config.experiment_id,
             periods_per_year=config.backtest.periods_per_year,
+            regimes=regimes,
             verbose=False,
         )
 
         _log_trial(config, report)
-        _write_artifacts(config, report, experiment_dir)
+        _write_artifacts(config, report, experiment_dir, regimes=regimes, panel=panel)
 
         metrics = report.performance.metrics()
         exec_summary = report.execution.summary(periods_per_year=config.backtest.periods_per_year)

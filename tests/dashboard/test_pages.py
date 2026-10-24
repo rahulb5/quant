@@ -109,3 +109,25 @@ def test_macro_explorer_missing_db_errors_cleanly(tmp_path, monkeypatch):
 
     assert not at.exception
     assert at.error
+
+
+def test_detail_renders_regime_table_and_state_exposure_from_new_diagnostics(tree):
+    import json
+
+    path = tree / "EXP-0003" / "diagnostics.json"
+    d = json.loads(path.read_text())
+    row = {"ann_return": 0.1, "ann_vol": 0.2, "sharpe": 0.5, "t_stat": 1.0, "hit_rate": 0.5,
+           "pct_time": 1.0, "n_obs": 100.0, "n_episodes": 3.0, "mean_episode_length": 33.0}
+    d["by_regime"] = {"policy": {"easing": row}, "volatility": {"low_vol": row}}
+    d["regime_layers"] = {"policy": "macro", "volatility": "market"}
+    d["state_exposure"] = {"const": {"coef": 0.0, "t_stat_hac": 0.1, "n_obs": 50, "r_squared": 0.0},
+                           "G_level": {"coef": 0.1, "t_stat_hac": 2.0, "n_obs": 50, "r_squared": 0.0}}
+    path.write_text(json.dumps(d))
+
+    at = _run("research/experiment.py", id="EXP-0003")
+
+    assert not at.exception
+    frames = [df.value for df in at.dataframe]
+    regime = next(f for f in frames if "n_episodes" in f.columns)
+    assert [tuple(i) for i in regime.index] == [("macro", "policy", "easing"), ("market", "volatility", "low_vol")]
+    assert any("t (Newey-West)" in f.columns and "G_level" in f.index for f in frames)

@@ -90,3 +90,20 @@ def test_artifacts_mtime_tracks_changes(tree):
 
     assert artifacts_mtime(tree) >= before > 0
     assert artifacts_mtime(tree / "missing") == 0.0
+
+
+def test_regime_table_groups_by_layer_and_falls_back_for_old_files():
+    from src.experiments.artifacts import regime_table
+
+    row = {"ann_return": 0.1, "sharpe": 1.0, "n_obs": 100.0, "n_episodes": 4.0}
+    diag = {
+        "by_regime": {"volatility": {"low_vol": row, "high_vol": row}, "policy": {"easing": row}},
+        "regime_layers": {"volatility": "market", "policy": "macro"},
+    }
+    t = regime_table(diag)
+    assert list(t.index.names) == ["layer", "regime", "label"]
+    assert [i[:2] for i in t.index] == [("macro", "policy"), ("market", "volatility"), ("market", "volatility")]
+    assert t.loc[("market", "volatility", "low_vol"), "n_episodes"] == 4.0
+    old = regime_table({"by_regime": diag["by_regime"]})                # pre-C9 diagnostics.json
+    assert set(old.index.get_level_values("layer")) == {"unassigned"} and len(old) == 3
+    assert regime_table({}).empty and regime_table({"by_regime": {}}).empty
