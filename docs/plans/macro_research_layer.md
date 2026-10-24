@@ -1,6 +1,6 @@
 # Macro research layer — implementation plan (blended)
 
-**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0–C6, C8 and C10 done** (see the outcome blocks; C6 amended 2026-10-24, family v2 drafted in `docs/research/macro_state_definitions_v2.md`, awaiting the researcher's freeze). **Next:** C7 (analysis), C9, C11, C12.
+**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0–C8 and C10 done** (see the outcome blocks; C6 amended 2026-10-24, family v2 frozen in `docs/research/macro_state_definitions_v2.md`). **Next:** C9, C11, C12.
 Replaces Part B of `docs/plans/cot_fix_and_macro_regimes.md`. Part A there (the COT fix) is complete
 and is a prerequisite.
 **Inputs:** the original Part B, and `docs/Macro Research Layer — Design Review.md`. Where they
@@ -473,6 +473,46 @@ Continuous analysis comes first. Regime tables summarise it.
 
 Reference assets: as in the original B6 (S&P 500, Nasdaq-100, gold, crude, dollar), with the
 Treasury proxy from C4.
+
+### C7 outcome (2026-10-24)
+
+Built `src/macro/analysis.py` (pure; no DB): `forward_returns`, `forward_regression`, `performance_by_regime`,
+`episode_bootstrap_ci`, `forward_returns_by_regime`, `divergence`, `pricing_divergence`, `divergence_forward_returns`,
+`episodes`, `transition_matrix`, `regime_durations`, `current_regime`. The per-label body of `Conditioner.by_regime()`
+is now the module-level `src.backtest.conditioning.regime_performance()` (+ `REGIME_PERF_COLS`), shared by both; a test
+checks the two give identical frames. Tests: 24 new in `tests/macro/test_analysis.py` (C13's two named cases, truncation
+invariance of the divergence outputs on aligned and mixed grids, no filling of sparse state); `tests/macro/test_analysis.py`
++ `tests/backtest` 333 passed. Smoke run on the live DB (shapes only, no return numbers looked at): every function
+runs for all six macro-layer regimes against S&P 500 returns; divergence `gap_z` valid from 1993-09 (growth), 1982-06
+(policy), 2009-01 (inflation).
+
+Choices where the plan was open:
+- R_{t→t+h} compounds r_{t+1..t+h}; X_t is reindexed to the returns' index with no fill. `forward_regression` puts
+  all state columns in one regression (pass one column for univariate); HAC lag defaults to h, a lag < h raises;
+  the non-overlapping cross-check takes every h-th aligned row with plain OLS.
+- Episodes are maximal runs on labels aligned to the returns' index; a NaN ends one. The bootstrap pools daily
+  returns of resampled whole episodes (rf = 0 Sharpe, 95% percentile CI, seeded) and flags `n_episodes < 5`.
+- **Entry errors (C7.4) are overlap-adjusted, not Newey-West:** Cov(R_i, R_j) = σ²·(days the two forward windows
+  share), σ² from the daily returns in that label's windows (Hansen-Hodrick under i.i.d. daily returns). A Bartlett
+  HAC on the entry series collapses to ~0 variance when entries cluster (a test caught it). Entries are switches
+  only: the sample's first episode and resumptions after a NaN gap are excluded.
+- **Divergence z-scoring:** growth uses `G_impulse` and `growth_pricing` as they are (both means of expanding
+  z-scores); `pi_impulse` and `P_impulse` (pp in the state vector) are z-scored daily, expanding, burn-in 756, clip
+  ±3, on the forward-filled business-day grid, like the market side. Gap terciles are expanding terciles of the gap
+  (burn-in 756), labelled `market_ahead` / `in_line` / `data_ahead`; forward returns by tercile come from a dummy
+  regression with HAC lag h, plus a `data_ahead − market_ahead` spread row. The caller picks the asset per dimension.
+- `transition_matrix` is episode-to-episode (diagonal 0; transitions across a NaN gap not counted);
+  `regime_durations` marks the still-running last episode (`last_censored`).
+
+Not built (outside the step's scope): a reference-asset loader (S&P 500, Nasdaq-100, gold `GC1` 300009, crude `CL1`
+300001, dollar, Treasury proxy from `rates.treasury_proxy_returns`). It belongs in `src/macro/inputs.py` / `data.py`
+and is needed by C9/C12. Note: B6's GSCI ids 400003/400001 hold only 2 rows each, so the futures ids are the ones to use.
+
+Review (spec-conformance + pit, one round): no look-ahead found. Fixed in-diff: entries counted at the sample start
+and after NaN gaps; growth side z-scored twice and asymmetrically; terciles on `gap_z` (double burn-in) instead of
+the gap; `n_episodes` vs `n_obs` on different samples in `divergence_forward_returns`; two tests added from the pit
+review. Open for the researcher: the entry-error method and the daily z-scoring of `pi_impulse` / `P_impulse` on
+forward-filled days (section 0 of the definitions says z-scores are computed once per release).
 
 ## C8. Validation write-up (`docs/research/macro_state_validation.md`)
 

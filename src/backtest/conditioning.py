@@ -65,6 +65,75 @@ _JOINT_COVERAGE_WARN = 0.60  # warn if joint inner join < 60 % of strategy obs
 _MIN_REG_OBS = 30             # minimum observations required for OLS
 
 
+REGIME_PERF_COLS = [
+    "ann_return", "ann_vol", "sharpe", "t_stat",
+    "hit_rate", "pct_time", "n_obs",
+]
+
+
+def regime_performance(
+    labels: pd.Series,
+    returns: pd.Series,
+    rf: float | pd.Series = 0.0,
+    periods_per_year: int = 252,
+) -> pd.DataFrame:
+    """Contiguity-independent performance of ``returns`` on the dates of each label.
+
+    Shared by ``Conditioner.by_regime()`` and ``src.macro.analysis.performance_by_regime()``.
+
+    Args:
+        labels: Categorical labels indexed by date (NaN = unlabelled, ignored).
+        returns: Per-period returns; each label's slice is ``returns`` on that
+            label's dates, NaN returns dropped.
+        rf: Scalar per-period risk-free rate, or a Series (reindexed to each
+            slice, missing values 0.0).
+        periods_per_year: Annualisation factor.
+
+    Returns:
+        DataFrame indexed by label (order of first appearance), columns
+        ``REGIME_PERF_COLS``. ``pct_time`` is the label's share of labelled
+        dates. Labels with fewer than 2 returns get NaN statistics. Empty
+        DataFrame if there are no labels.
+    """
+    valid_labels = labels.dropna()
+    if valid_labels.empty:
+        return pd.DataFrame(columns=REGIME_PERF_COLS)
+    total_labeled = len(valid_labels)
+    label_order = list(dict.fromkeys(valid_labels))
+
+    rows: dict[str, dict] = {}
+    for lbl in label_order:
+        lbl_dates = valid_labels.index[valid_labels == lbl]
+        slice_ret = returns.reindex(lbl_dates).dropna()
+        n_obs = len(slice_ret)
+        pct_time = len(lbl_dates) / total_labeled
+
+        if n_obs < 2:
+            rows[lbl] = {
+                "ann_return": float("nan"),
+                "ann_vol": float("nan"),
+                "sharpe": float("nan"),
+                "t_stat": float("nan"),
+                "hit_rate": float("nan"),
+                "pct_time": pct_time,
+                "n_obs": float(n_obs),
+            }
+            continue
+
+        rf_s = rf.reindex(slice_ret.index).fillna(0.0) if isinstance(rf, pd.Series) else rf
+        rows[lbl] = {
+            "ann_return": annualized_return(slice_ret, periods_per_year),
+            "ann_vol": annualized_volatility(slice_ret, periods_per_year),
+            "sharpe": sharpe_ratio(slice_ret, rf_s, periods_per_year),
+            "t_stat": sharpe_tstat(slice_ret, rf_s),
+            "hit_rate": hit_rate(slice_ret),
+            "pct_time": pct_time,
+            "n_obs": float(n_obs),
+        }
+
+    return pd.DataFrame.from_dict(rows, orient="index")[REGIME_PERF_COLS]
+
+
 class Conditioner:
     """Align factor data and regime labels to a strategy and report conditional performance.
 
@@ -221,64 +290,18 @@ class Conditioner:
             window.  Regimes with no valid labels after alignment are omitted
             (warning logged).
         """
-        cols = [
-            "ann_return", "ann_vol", "sharpe", "t_stat",
-            "hit_rate", "pct_time", "n_obs",
-        ]
         result: dict[str, pd.DataFrame] = {}
 
         for regime_name, aligned_labels in self._regime_labels.items():
-            valid_labels = aligned_labels.dropna()
-            if valid_labels.empty:
+            if aligned_labels.dropna().empty:
                 logger.warning(
                     f"[Conditioner] Regime '{regime_name}' has no valid labels "
                     f"in the strategy window — omitting."
                 )
                 continue
-
-            total_labeled = len(valid_labels)
-
-            # Determine label order by chronological first appearance
-            seen: dict[str, None] = {}
-            for lbl in valid_labels:
-                if lbl not in seen:
-                    seen[lbl] = None
-            label_order = list(seen.keys())
-
-            rows: dict[str, dict] = {}
-            for lbl in label_order:
-                lbl_dates = valid_labels.index[valid_labels == lbl]
-                slice_ret = self._spine.reindex(lbl_dates).dropna()
-                n_obs = len(slice_ret)
-                pct_time = len(lbl_dates) / total_labeled
-
-                if n_obs < 2:
-                    rows[lbl] = {
-                        "ann_return": float("nan"),
-                        "ann_vol": float("nan"),
-                        "sharpe": float("nan"),
-                        "t_stat": float("nan"),
-                        "hit_rate": float("nan"),
-                        "pct_time": pct_time,
-                        "n_obs": float(n_obs),
-                    }
-                    continue
-
-                rf_s = self._rf_for(slice_ret.index)
-                rows[lbl] = {
-                    "ann_return": annualized_return(slice_ret, self._ppy),
-                    "ann_vol": annualized_volatility(slice_ret, self._ppy),
-                    "sharpe": sharpe_ratio(slice_ret, rf_s, self._ppy),
-                    "t_stat": sharpe_tstat(slice_ret, rf_s),
-                    "hit_rate": hit_rate(slice_ret),
-                    "pct_time": pct_time,
-                    "n_obs": float(n_obs),
-                }
-
-            if rows:
-                result[regime_name] = pd.DataFrame.from_dict(
-                    rows, orient="index"
-                )[cols]
+            table = regime_performance(aligned_labels, self._spine, self._rf, self._ppy)
+            if not table.empty:
+                result[regime_name] = table
 
         return result
 
