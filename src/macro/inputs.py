@@ -173,6 +173,26 @@ def load_market_inputs(db: Database, pre_vintage: PreVintage = "drop") -> dict[s
     return out
 
 
+def sahm_fn(s: pd.Series) -> pd.Series:
+    from src.macro.flags import sahm_indicator
+    return sahm_indicator(s)
+
+
+def load_flag_inputs(db: Database, pre_vintage: PreVintage = "drop") -> dict[str, pd.Series]:
+    """Release-dated inputs for src.macro.flags: our own Sahm value from UNRATE vintages
+    ("sahm"), FRED's SAHMREALTIME ("sahm_fred", cross-check) and T10Y3M ("t10y3m")."""
+    out: dict[str, pd.Series] = {}
+    for key, code, fn, daily in (("sahm", "UNRATE", sahm_fn, False), ("sahm_fred", "SAHMREALTIME", level, False),
+                                 ("t10y3m", "T10Y3M", level, True)):
+        v = load_vintages(db, code)
+        if v.empty:
+            continue
+        s = pit_series(v, fn, code, pre_vintage=pre_vintage, daily=daily)
+        if not s.empty:
+            out[key] = s
+    return out
+
+
 def load_state_inputs(
     db: Database,
     names: list[str] | None = None,

@@ -424,6 +424,30 @@ can group them.
 `RatesRegime` and `TrendRegime`. Run C8.4 (overlap) before deciding whether `RatesRegime` and
 `curve_dynamics` both stay.
 
+**C6 outcome (2026-10-24).** Built `src/macro/regimes.py` (pure label functions `sign_hold`,
+`min_duration_labels`, `growth_inflation_labels`, `growth_level_labels`, `policy_labels`,
+`financial_conditions_labels`; `StatePanel`, the only DB-touching piece, built once and shared; six
+`MacroRegime` subclasses with a `layer` attribute; `REGIME_REGISTRY`; `macro_regimes()`) and
+`src/macro/flags.py` (`sahm_indicator`, `sahm_triggered`, `sahm_crosscheck`, `labor_deteriorating`,
+`curve_inverted`, `event_flags`), plus `load_flag_inputs()` in `inputs.py`. 19 tests (568 in the suite
+pass); the six regimes run through the real `Conditioner.by_regime()`. The existing `VolRegime`,
+`RatesRegime` and `TrendRegime` got `layer = "market"`. Valid from, and label switches over each history:
+
+| Regime | Valid from | Switches | Latest (2026-10-23) |
+|---|---|---|---|
+| `growth_inflation` | 1960-04 | 159 | goldilocks |
+| `growth_level` | 1960-04 | 25 | above_trend |
+| `policy` | 1963-02 | 862 | restrictive_easing |
+| `financial_conditions` | 2002-10 | 388 | normal |
+| `curve_dynamics` | 1976-08 | 1,282 | bear_flattener |
+| `dollar_trend` | 2006-10 (approximate before 2019-02) | 108 | strong_usd |
+
+For C8: `policy` and `curve_dynamics` flip often (a sign flip of `P_stance` or a 63-day change near zero),
+so check episode lengths before reading their tables. Sahm check: our real-time value vs FRED's
+`SAHMREALTIME` differs by 0.018 pp on average (max 0.87), and the two flags disagree on 101 of 17,379
+days (release timing). The flag fires in every NBER recession since 1960 and once outside one (2024-08).
+The spec's `on_hold` category from the plan is not implemented: the frozen spec has four policy labels.
+
 ## C7. Analysis (`src/macro/analysis.py`)
 
 Continuous analysis comes first. Regime tables summarise it.

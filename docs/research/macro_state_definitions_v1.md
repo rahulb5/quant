@@ -216,3 +216,19 @@ No definition changed.
 4. **Positioning** is dated `report_date + 3` days, per this section, rather than the DB `release_date`.
 5. **Volatility terciles** use `expanding_bucket_labels` on the release-dated VIX series (same function and labels
    as `VolRegime`, no DB access).
+
+### Clarifications made while implementing C6 (2026-10-24)
+
+No definition changed.
+
+1. **Boundary rule:** a signed composite exactly at 0 keeps the previous label; before any earlier sign exists it is NaN.
+2. **`min_duration` is causal:** a new `growth_inflation` label takes effect on the day it completes 21 consecutive
+   business days, never retroactively. Labels therefore lag a regime change by about a month. A NaN resets it.
+3. **Policy direction** is undefined (NaN label) until `P_impulse` first crosses ±25 bp; between crossings the last
+   direction holds. The plan's separate `on_hold` category is not used (this file has four labels).
+4. **`financial_conditions` valid from 2002-10:** `FC` starts 1999-11 (clarification 6 above) plus the 756-day burn-in
+   for the terciles.
+5. **`labor_deteriorating`:** the expanding 80th percentile of `L_impulse` is taken over business-day values with a
+   756-day burn-in (the section 0 burn-in for daily series); no burn-in was specified.
+6. **`sahm_triggered`** is computed from `UNRATE` vintages (3-month average minus the minimum of the prior 12
+   months' averages, >= 0.5 pp); `SAHMREALTIME` is the cross-check only.
