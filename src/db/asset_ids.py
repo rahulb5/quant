@@ -28,6 +28,7 @@ ID_BLOCKS: dict[str, tuple[int, int]] = {
     "forex":        (200_001, 299_999),   # CURRENCY_PAIRS, incl. crypto pairs (fixed ids)
     "futures":      (300_001, 399_999),   # commodity futures
     "index":        (400_001, 499_999),   # S&P GSCI excess-return indices (fixed ids)
+    "etf":          (500_001, 599_999),   # collectors/total_return.py ETFs (fixed ids, asset_class='equity')
 }
 
 

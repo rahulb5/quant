@@ -106,7 +106,7 @@ def _cached_catalog(path: str, mtime: float) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def _cached_series(path: str, mtime: float, source: str, code: str, vintage: str,
                    measure: str | None, pct_of_oi: bool) -> pd.Series:
-    if source == "FRED":
+    if source in ("FRED", "BIS"):  # both live in macro_observations
         return macro_data.load_fred(_db(), code, vintage=vintage)
     return macro_data.load_cot(_db(), code, measure, pct_of_oi=pct_of_oi)
 

@@ -245,4 +245,17 @@ MIGRATIONS: list[Migration] = [
         CREATE INDEX IF NOT EXISTS idx_trials_family ON trials (family, kind);
         """,
     ),
+    Migration(
+        version=12,
+        description="Create dividends table",
+        sql="""
+        CREATE TABLE IF NOT EXISTS dividends (
+            asset_id    INTEGER     NOT NULL REFERENCES assets(id),
+            ex_date     DATE        NOT NULL,
+            amount      DOUBLE      NOT NULL,   -- per share, in the price's units (e.g. GBp)
+            source      TEXT        NOT NULL,
+            PRIMARY KEY (asset_id, ex_date)
+        );
+        """,
+    ),
 ]

@@ -1,4 +1,4 @@
-"""Macro explorer: pick a FRED or CFTC series, transform it, see its rolling z-score."""
+"""Macro explorer: pick a FRED, BIS or CFTC series, transform it, see its rolling z-score."""
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -22,7 +22,7 @@ if catalog.empty:
     st.info("No macro or positioning series in the database.")
     st.stop()
 
-SOURCES = {"FRED": "Macro (FRED)", "CFTC": "Positioning (CFTC COT)"}
+SOURCES = {"FRED": "Macro (FRED)", "BIS": "Policy rates (BIS)", "CFTC": "Positioning (CFTC COT)"}
 
 # ── Selection ────────────────────────────────────────────────────────────────
 
@@ -53,6 +53,8 @@ with st.sidebar:
             help="First release = the value as originally published (what was known in real time).",
         )
         measure, pct_of_oi = None, False
+    elif source == "BIS":  # unrevised daily rates: one vintage
+        vintage, measure, pct_of_oi = "latest", None, False
     else:
         measures = cot_measures(meta["report_type"])
         measure = st.selectbox("Measure", list(measures), format_func=measures.get)

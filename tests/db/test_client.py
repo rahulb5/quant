@@ -52,6 +52,7 @@ def test_migrations_idempotent():
     "macro_series",
     "macro_observations",
     "data_fetch_log",
+    "dividends",
 ])
 def test_table_exists(db, table):
     rows = db.query(
