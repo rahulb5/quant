@@ -3,13 +3,14 @@ src/experiments/robustness.py
 
 The standard "try to kill the strategy" suite (build plan Sections 13 / Phase 4).
 run_robustness() takes an experiment's config.yaml, rebuilds its weights and
-returns once, then runs seven checks and writes robustness.json plus charts
+returns once, then runs eight checks and writes robustness.json plus charts
 next to the config, updates the research note's Robustness section, and
 records headline numbers on the registry row.
 
 Checks (each returns PASS / FLAG / KILL / SKIPPED; thresholds live in
 config.robustness): cost_stress, lag_sensitivity, outliers, subperiods,
-parameters, statistical, holdout.
+parameters, walk_forward, statistical, holdout. parameters and walk_forward
+share one backtest per param_grid point (grid_net_returns).
 
 Verdicts are mechanical. The overall result is KILLED (any check KILL) or
 NEEDS_REVIEW; this module never emits "approved" -- that is the researcher's call.
@@ -240,8 +241,33 @@ def check_statistical(net: pd.Series, ppy: int, n_trials: int, rc: RobustnessCon
     return CheckResult(PASS, f"deflated Sharpe {detail['deflated_sharpe']:.2f} at n_trials={n_trials}; {ci_note}", detail)
 
 
-def check_parameters(
+def grid_net_returns(
     config: ExperimentConfig, signal_data: tuple, asset_returns: pd.DataFrame
+) -> tuple[list[tuple[dict[str, Any], pd.Series]], list[dict[str, Any]]]:
+    """Net returns of every param_grid point (holdout excluded), in grid order.
+
+    Returns ([(params, net returns)], [{"params", "error"}] for points that failed).
+    Shared by check_parameters and check_walk_forward so each point is backtested once.
+    """
+    grid = config.robustness.param_grid
+    keys = list(grid)
+    nets, failures = [], []
+    for values in itertools.product(*(grid[k] for k in keys)):
+        params = dict(zip(keys, values))
+        try:
+            cfg = _with_overrides(config, params)
+            weights = runner._build_weights(cfg, runner._compute_signal(cfg, signal_data))
+            weights, returns = runner._apply_holdout(weights, asset_returns, config.validation.holdout_start)
+            nets.append((params, apply_costs(weights, returns, cfg.backtest.cost_bps, cfg.backtest.lag).net_returns))
+        except Exception as exc:
+            logger.warning(f"[robustness] param combo {params} failed: {exc}")
+            failures.append({"params": params, "error": str(exc)})
+    return nets, failures
+
+
+def check_parameters(
+    config: ExperimentConfig, signal_data: tuple, asset_returns: pd.DataFrame,
+    grid_nets: tuple[list, list] | None = None,
 ) -> CheckResult:
     rc = config.robustness
     grid = rc.param_grid
@@ -249,19 +275,10 @@ def check_parameters(
         return CheckResult(SKIPPED, "no param_grid configured", {})
 
     keys = list(grid)
-    rows, failures = [], []
-    for values in itertools.product(*(grid[k] for k in keys)):
-        params = dict(zip(keys, values))
-        try:
-            cfg = _with_overrides(config, params)
-            weights = runner._build_weights(cfg, runner._compute_signal(cfg, signal_data))
-            weights, returns = runner._apply_holdout(weights, asset_returns, config.validation.holdout_start)
-            net = apply_costs(weights, returns, cfg.backtest.cost_bps, cfg.backtest.lag).net_returns
-            rows.append({"params": params, "sharpe": _sharpe(net, cfg.backtest.periods_per_year),
-                         "n_obs": len(net)})
-        except Exception as exc:
-            logger.warning(f"[robustness] param combo {params} failed: {exc}")
-            failures.append({"params": params, "error": str(exc)})
+    nets, failures = grid_nets if grid_nets is not None else grid_net_returns(config, signal_data, asset_returns)
+    rows = [{"params": params, "n_obs": len(net),   # each point's own periods_per_year, in case the grid sets it
+             "sharpe": _sharpe(net, _with_overrides(config, params).backtest.periods_per_year)}
+            for params, net in nets]
 
     detail = {"keys": keys, "grid": rows, "failures": failures}
     scored = [r["sharpe"] for r in rows if r["sharpe"] is not None]
@@ -274,6 +291,94 @@ def check_parameters(
     if bad_fraction > rc.param_kill_frac:
         return CheckResult(KILL, f"{bad_fraction:.0%} of {len(scored)} settings have Sharpe < 0 (> {rc.param_kill_frac:.0%}){failure_note}", detail)
     return CheckResult(PASS, f"{bad_fraction:.0%} of {len(scored)} settings have Sharpe < 0; range [{min(scored):.2f}, {max(scored):.2f}]{failure_note}", detail)
+
+
+def walk_forward(
+    nets: list[tuple[dict[str, Any], pd.Series]], ppy: int, min_train_years: float, test_years: float
+) -> dict[str, Any] | None:
+    """Expanding-window parameter selection over grid net-return series.
+
+    Train windows run from the first date to train_end (at least min_train_years);
+    the grid point with the best train Sharpe (first in grid order on ties) is
+    held over (train_end, train_end + test_years]; train_end then moves to the
+    end of that test window. The last test window may be shorter. Returns None
+    when the history is too short for one train + test window.
+
+    Valid because each grid point's net returns at t depend only on data up to t
+    (signals are causal); the grid is fixed in advance, so only the selection is tested.
+    """
+    if not nets:
+        return None
+    dates = pd.DatetimeIndex(sorted(set().union(*(net.index for _, net in nets))))
+    years = lambda y: pd.DateOffset(days=round(365.25 * y))
+    train_end = dates[0] + years(min_train_years)
+    if train_end >= dates[-1]:
+        return None
+
+    windows, segments = [], []
+    while train_end < dates[-1]:
+        test_end = train_end + years(test_years)
+        train = [_sharpe(net[net.index <= train_end], ppy) for _, net in nets]
+        scored = [(s, i) for i, s in enumerate(train) if s is not None]
+        if scored:
+            best_sharpe = max(s for s, _ in scored)
+            best = next(i for s, i in scored if s == best_sharpe)
+            params, net = nets[best]
+            seg = net[(net.index > train_end) & (net.index <= test_end)]
+            if len(seg):
+                segments.append(seg)
+                windows.append({
+                    "train_end": str(train_end.date()), "test_end": str(min(test_end, dates[-1]).date()),
+                    "params": params, "train_sharpe": best_sharpe,
+                    "test_sharpe": _sharpe(seg, ppy), "n_test": len(seg),
+                })
+        train_end = test_end
+
+    if not segments:
+        return None
+    oos = pd.concat(segments)
+    full = [(_sharpe(net, ppy), params, net) for params, net in nets]
+    full = [f for f in full if f[0] is not None]
+    is_sharpe, is_params, is_net = max(full, key=lambda f: f[0]) if full else (None, None, None)
+    changes = sum(a["params"] != b["params"] for a, b in zip(windows, windows[1:]))
+    return {
+        "oos_sharpe": _sharpe(oos, ppy),
+        "in_sample_sharpe": is_sharpe,
+        "in_sample_params": is_params,
+        # The best full-sample point over the OOS dates only: separates selection decay from period effects.
+        "in_sample_sharpe_oos_period": None if is_net is None else _sharpe(is_net[is_net.index.isin(oos.index)], ppy),
+        "n_oos": len(oos),
+        "oos_start": str(oos.index[0].date()),
+        "n_windows": len(windows),
+        "param_changes": changes,
+        "param_change_rate": changes / (len(windows) - 1) if len(windows) > 1 else 0.0,
+        "windows": windows,
+    }
+
+
+def check_walk_forward(config: ExperimentConfig, grid_nets: tuple[list, list]) -> CheckResult:
+    """C11 walk-forward check: does picking the best grid point in-sample hold up out of sample?"""
+    rc = config.robustness
+    if not rc.param_grid:
+        return CheckResult(SKIPPED, "no param_grid configured", {})
+    nets, failures = grid_nets
+    ppy = config.backtest.periods_per_year
+    detail = walk_forward(nets, ppy, rc.wf_min_train_years, rc.wf_test_years)
+    if detail is None:
+        return CheckResult(SKIPPED, f"history shorter than {rc.wf_min_train_years:g}y train + one test window "
+                                    f"(or no grid point scored)", {"failures": failures})
+    detail["failures"] = failures
+    oos, ins = detail["oos_sharpe"], detail["in_sample_sharpe"]
+    detail["decay_ratio"] = oos / ins if oos is not None and ins not in (None, 0) else None
+    summary = (f"OOS Sharpe {_f(oos)} vs in-sample {_f(ins)} over {detail['n_windows']} window(s) from "
+               f"{detail['oos_start']}; parameter changed {detail['param_changes']}x")
+    if oos is None:
+        return CheckResult(FLAG, f"out-of-sample Sharpe undefined; {summary}", detail)
+    if oos <= rc.wf_kill_sharpe:
+        return CheckResult(KILL, f"{summary} (OOS <= {rc.wf_kill_sharpe:g})", detail)
+    if ins is not None and ins > 0 and oos < rc.wf_flag_ratio * ins:
+        return CheckResult(FLAG, f"{summary} (OOS < {rc.wf_flag_ratio:g} x in-sample)", detail)
+    return CheckResult(PASS, summary, detail)
 
 
 def check_holdout(
@@ -313,6 +418,11 @@ def check_holdout(
 
 # ── Charts ────────────────────────────────────────────────────────────────────
 
+def _label(value: Any) -> Any:
+    """Grid value as a chart label: lists (e.g. lookbacks) become strings; scalars stay as-is."""
+    return str(value) if isinstance(value, (list, tuple, dict)) else value
+
+
 def _write_charts(results: dict[str, Any], charts_dir: Path) -> None:
     charts_dir.mkdir(exist_ok=True)
     exp_id = results["experiment_id"]
@@ -343,17 +453,17 @@ def _write_charts(results: dict[str, Any], charts_dir: Path) -> None:
     keys = param.get("keys", [])
     if grid and len(keys) == 1:
         fig, ax = plt.subplots()
-        ax.plot([r["params"][keys[0]] for r in grid], [r["sharpe"] for r in grid], marker="o")
+        ax.plot([_label(r["params"][keys[0]]) for r in grid], [r["sharpe"] for r in grid], marker="o")
         ax.axhline(0, color="grey", linewidth=0.8)
         ax.set(title=f"{exp_id} — Sharpe vs {keys[0]}", xlabel=keys[0], ylabel="Sharpe")
         fig.savefig(charts_dir / "robustness_params.png")
         plt.close(fig)
     elif grid and len(keys) == 2:
-        xs = sorted({r["params"][keys[0]] for r in grid})
-        ys = sorted({r["params"][keys[1]] for r in grid})
+        xs = list(dict.fromkeys(_label(r["params"][keys[0]]) for r in grid))   # grid order; lists allowed
+        ys = list(dict.fromkeys(_label(r["params"][keys[1]]) for r in grid))
         table = np.full((len(ys), len(xs)), np.nan)
         for r in grid:
-            table[ys.index(r["params"][keys[1]]), xs.index(r["params"][keys[0]])] = r["sharpe"]
+            table[ys.index(_label(r["params"][keys[1]])), xs.index(_label(r["params"][keys[0]]))] = r["sharpe"]
         fig, ax = plt.subplots()
         image = ax.imshow(table, aspect="auto", origin="lower")
         ax.set(xticks=range(len(xs)), xticklabels=xs, yticks=range(len(ys)), yticklabels=ys,
@@ -389,13 +499,15 @@ def run_robustness(config_path: str, unlock_holdout: bool = False) -> Robustness
                          experiment_id=config.experiment_id, family_version=config.validation.family_version,
                          periods_per_year=ppy)
     n_used, n_declared, n_ledger = trials.effective_n_trials(config)
+    grid_nets = grid_net_returns(config, signal_data, returns_full) if rc.param_grid else ([], [])
 
     checks = {
         "cost_stress": check_cost_stress(base.gross_returns, base.turnover, bt.cost_bps, ppy, rc),
         "lag_sensitivity": check_lag_sensitivity(weights, asset_returns, bt.lag, bt.cost_bps, ppy, rc),
         "outliers": check_outliers(net, ppy, rc),
         "subperiods": check_subperiods(net, ppy, rc),
-        "parameters": check_parameters(config, signal_data, returns_full),
+        "parameters": check_parameters(config, signal_data, returns_full, grid_nets),
+        "walk_forward": check_walk_forward(config, grid_nets),
         "statistical": check_statistical(net, ppy, n_used, rc),
         "holdout": check_holdout(
             config, apply_costs(weights_full, returns_full, bt.cost_bps, bt.lag).net_returns,

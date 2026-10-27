@@ -1,6 +1,6 @@
 # Macro research layer — implementation plan (blended)
 
-**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0–C10 and C12 done; C9 built except the EXP-0001/2 re-runs** (see the outcome blocks; C6 amended 2026-10-24, family v2 frozen in `docs/research/macro_state_definitions_v2.md`). **Next:** C9 re-runs (researcher decision), C11, `/update-architecture`.
+**Status:** approved by the researcher on 2026-10-22 (E1–E4 below; E2 revised for CPI). **C0–C12 done; C9 built except the EXP-0001/2 re-runs** (see the outcome blocks; C6 amended 2026-10-24, family v2 frozen in `docs/research/macro_state_definitions_v2.md`). **Next:** C9 re-runs (researcher decision), `/update-architecture`.
 Replaces Part B of `docs/plans/cot_fix_and_macro_regimes.md`. Part A there (the COT fix) is complete
 and is a prerequisite.
 **Inputs:** the original Part B, and `docs/Macro Research Layer — Design Review.md`. Where they
@@ -657,6 +657,41 @@ A new check, `walk_forward`, built on the existing parameter-grid machinery:
 - `FLAG` if the out-of-sample Sharpe is below half the in-sample Sharpe; `KILL` if it is ≤ 0.
   Thresholds go in `RobustnessConfig`.
 - `SKIPPED` when the config has no parameter grid.
+
+### C11 outcome (2026-10-25)
+
+`check_walk_forward` and pure `walk_forward()` in `src/experiments/robustness.py`, registered as the eighth
+check (between `parameters` and `statistical`); research notes pick it up through the generic check table.
+`RobustnessConfig` gains `wf_min_train_years=5`, `wf_test_years=1`, `wf_flag_ratio=0.5`, `wf_kill_sharpe=0`.
+The new `grid_net_returns()` backtests each grid point once (holdout excluded, as before), and both
+`parameters` and `walk_forward` use it. 6 new tests (overfit grid → FLAG/KILL, real edge → PASS, train-only
+selection, config kill threshold, SKIPPED cases); the integration test now expects 8 checks.
+
+Choices where the spec was open:
+- "In-sample Sharpe" = full-sample Sharpe of the best grid point. Also reported:
+  `in_sample_sharpe_oos_period`, the same point over the OOS dates only, which separates selection decay
+  from period effects.
+- Training expands from the first net-return date, so warm-up periods count towards the 5 years.
+- Ties pick the first grid point; the last test window may be partial; years are 365.25 days.
+- SKIPPED also covers history too short for one train + test window.
+- An undefined OOS Sharpe gives FLAG. FLAG needs in-sample Sharpe > 0.
+- Windows with no scored point are dropped before counting parameter changes.
+
+Spec review: no missing requirements. One in-diff regression fixed: `check_parameters` again annualises each
+point with its own `periods_per_year`.
+
+**Run on EXP-0001/0002:** done read-only (check functions called directly; no artifact, registry or ledger
+writes, since the C9 re-run decision is still open).
+
+| | Verdict | OOS Sharpe | In-sample (best point) | Best point over OOS dates | Windows | Param changes |
+|---|---|---|---|---|---|---|
+| EXP-0001 | PASS | 0.39 (weekly, from 2011-06) | 0.47 | 0.42 | 16 | 2 |
+| EXP-0002 | PASS | 0.52 (daily, from 2001-02) | 0.55 | 0.80 | 26 | 9 |
+
+Reading: PASS only says that choosing within these grids isn't what produced the result. It can't see
+selection made outside the grid: EXP-0002 is the best of 10 alphas (the trial ledger's job), EXP-0001's
+return-series problems, or survivorship. EXP-0002's best point earns 0.80 over the same dates, while the
+walk-forward choice earns 0.52, so its parameter choice does matter (9 changes in 26 windows).
 
 ## C12. Dashboard (`dashboard/macro/state.py`)
 

@@ -168,6 +168,14 @@ class RobustnessConfig:
     param_kill_frac: float = 0.6
     deflated_sharpe_flag: float = 0.90
     holdout_kill_sharpe: float = -0.25
+    # Walk-forward (check_walk_forward): expanding train windows of at least
+    # wf_min_train_years, scored on the next wf_test_years. FLAG when the stitched
+    # out-of-sample Sharpe is below wf_flag_ratio x the in-sample Sharpe; KILL
+    # when it is <= wf_kill_sharpe.
+    wf_min_train_years: float = 5.0
+    wf_test_years: float = 1.0
+    wf_flag_ratio: float = 0.5
+    wf_kill_sharpe: float = 0.0
 
 
 @dataclass

@@ -161,6 +161,72 @@ def test_with_overrides_rejects_unknown_path():
         rb._with_overrides(_config(), {"portfolio.thresold": 70})
 
 
+# ── walk-forward (C11) ────────────────────────────────────────────────────────
+
+WF_GRID = {"portfolio.threshold": list(range(20))}
+
+
+def _wf_config(**rc_overrides) -> ExperimentConfig:
+    rc = RobustnessConfig(param_grid=WF_GRID, **rc_overrides)
+    return _config(robustness=rc, backtest=BacktestConfig(cost_bps=1.0, lag=1, periods_per_year=252))
+
+
+def _nets(means, n=252 * 12, std=0.01, seed=0):
+    """One daily net-return series per grid point; `means` is a list of floats or per-day arrays."""
+    rng = np.random.default_rng(seed)
+    idx = pd.bdate_range("2010-01-01", periods=n)
+    return [({"portfolio.threshold": i}, pd.Series(np.asarray(m) + rng.normal(0, std, n), index=idx))
+            for i, m in enumerate(means)]
+
+
+def test_walk_forward_flags_or_kills_a_known_overfit_grid():
+    """20 pure-noise variants: the best in-sample one is luck, so it doesn't hold up out of sample."""
+    nets = _nets([0.0] * 20)
+    result = rb.check_walk_forward(_wf_config(), (nets, []))
+    d = result.detail
+    assert result.verdict in {rb.FLAG, rb.KILL}
+    assert d["in_sample_sharpe"] > 0.3                 # selection makes noise look good
+    assert d["oos_sharpe"] < 0.5 * d["in_sample_sharpe"]
+    assert d["n_windows"] == 7                         # 12y of data, 5y first train window, 1y steps
+    assert d["oos_start"] > "2014-12-31"
+
+
+def test_walk_forward_passes_a_real_edge():
+    nets = _nets([0.0008] * 20)                        # every variant ~1.3 Sharpe
+    result = rb.check_walk_forward(_wf_config(), (nets, []))
+    assert result.verdict == rb.PASS
+    assert result.detail["oos_sharpe"] > 0.5 * result.detail["in_sample_sharpe"]
+
+
+def test_walk_forward_selection_uses_only_train_data():
+    """Variant 0 is good until just after the first 5y train window, variant 1 after.
+
+    The first window must pick 0 (it can't see the switch); by the last window the
+    expanding train data favours 1.
+    """
+    n = 252 * 12
+    good_early = np.where(np.arange(n) < int(252 * 5.2), 0.002, -0.002)
+    nets = _nets([good_early, -good_early], n=n, std=0.005)
+    d = rb.walk_forward(nets, 252, 5.0, 1.0)
+    assert d["windows"][0]["params"] == {"portfolio.threshold": 0}
+    assert d["windows"][-1]["params"] == {"portfolio.threshold": 1}
+    assert d["param_changes"] >= 1
+    assert all(w["train_end"] < w["test_end"] for w in d["windows"])
+
+
+def test_walk_forward_kill_threshold_from_config():
+    nets = _nets([0.0008] * 20)
+    result = rb.check_walk_forward(_wf_config(wf_kill_sharpe=10.0), (nets, []))
+    assert result.verdict == rb.KILL
+
+
+def test_walk_forward_skipped_without_grid_or_history():
+    no_grid = _config(robustness=RobustnessConfig())
+    assert rb.check_walk_forward(no_grid, ([], [])).verdict == rb.SKIPPED
+    short = _nets([0.001] * 3, n=252 * 4)
+    assert rb.check_walk_forward(_wf_config(), (short, [])).verdict == rb.SKIPPED
+
+
 # ── integration ───────────────────────────────────────────────────────────────
 
 @pytest.fixture
@@ -224,8 +290,10 @@ def test_run_robustness_writes_artifacts_registry_and_note(tmp_path, mem_db, mon
     saved = json.loads((experiment_dir / "robustness.json").read_text())
     assert set(saved["checks"]) == {
         "cost_stress", "lag_sensitivity", "outliers", "subperiods",
-        "parameters", "statistical", "holdout",
+        "parameters", "walk_forward", "statistical", "holdout",
     }
+    # ~2.7 years of synthetic data: too short for a 5-year train window.
+    assert saved["checks"]["walk_forward"]["verdict"] == rb.SKIPPED
     assert saved["overall"] in {"KILLED", "NEEDS_REVIEW"}
     assert saved["checks"]["holdout"]["verdict"] == rb.SKIPPED
     assert len(saved["checks"]["parameters"]["detail"]["grid"]) == 3
@@ -309,3 +377,15 @@ def test_robustness_without_family_uses_declared_and_says_so(tmp_path, mem_db, m
     assert saved["n_trials"] == 4 and saved["n_trials_ledger"] == 0 and saved["family"] is None
     assert mem_db.query("SELECT COUNT(*) AS n FROM trials")[0]["n"] == 0
     assert "no ledger family is set" in (experiment_dir / "research_note.md").read_text()
+
+
+def test_write_charts_handles_list_valued_grid_params(tmp_path):
+    """e.g. signal.parameters.lookbacks: [[21, 63, 252], [252]] — must not raise 'unhashable type: list'."""
+    grid = [{"params": {"signal.parameters.lookbacks": lb, "signal.parameters.vol_com": vc}, "sharpe": 0.5, "n_obs": 10}
+            for lb in ([21, 63, 252], [252]) for vc in (30, 60)]
+    results = {"experiment_id": "EXP-9999", "checks": {
+        "cost_stress": {"detail": {}}, "subperiods": {"detail": {}},
+        "parameters": {"detail": {"keys": ["signal.parameters.lookbacks", "signal.parameters.vol_com"], "grid": grid}},
+    }}
+    rb._write_charts(results, tmp_path / "charts")
+    assert (tmp_path / "charts" / "robustness_params.png").exists()
