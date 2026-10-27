@@ -334,3 +334,47 @@ def test_state_exposure_regresses_next_period_returns_on_state():
     out = runner_module._state_exposure(StatePanel.from_frame(frame), r)
     assert out["G_impulse"]["coef"] == pytest.approx(0.001, rel=0.1) and out["G_impulse"]["t_stat_hac"] > 10
     assert abs(out["pi_level"]["t_stat_hac"]) < 4
+
+
+def test_build_returns_restricts_to_data_instruments(monkeypatch):
+    from src.experiments.config import DataConfig, ExperimentConfig, PortfolioConfig, SignalConfig
+
+    class FakeUniverse:
+        def returns_panel(self, resample=None, start=None, end=None):
+            idx = pd.to_datetime(["2020-01-02", "2020-01-03"])
+            return pd.DataFrame({"EQ.SPX": [0.01, None], "FX.EUR": [None, None], "RT.UST10": [0.0, 0.0]}, index=idx)
+
+    monkeypatch.setitem(runner_module.UNIVERSE_REGISTRY, "fake_layer", FakeUniverse)
+
+    def cfg(instruments):
+        return ExperimentConfig(
+            experiment_id="EXP-9999", hypothesis="h",
+            data=DataConfig(asset_class="fake_layer", instruments=instruments),
+            signal=SignalConfig(module="unused"),
+            portfolio=PortfolioConfig(rule="vol_target", date_column="date", asset_column="instrument",
+                                      signal_column="signal"),
+        )
+
+    assert list(runner_module._build_returns(cfg(None)).columns) == ["EQ.SPX", "FX.EUR", "RT.UST10"]
+    sub = runner_module._build_returns(cfg(["FX.EUR", "EQ.SPX"]))
+    assert list(sub.columns) == ["FX.EUR", "EQ.SPX"]
+    assert len(sub) == 1                                   # the all-NaN row is dropped
+    with pytest.raises(ValueError, match="not in the fake_layer returns panel"):
+        runner_module._build_returns(cfg(["FX.JPY"]))
+
+
+def test_build_panels_rejects_mismatched_signal_universe(monkeypatch):
+    from src.experiments.config import DataConfig, ExperimentConfig, PortfolioConfig, SignalConfig
+
+    monkeypatch.setattr(runner_module, "_build_weights",
+                        lambda cfg, sig: pd.DataFrame({"EQ.SPX": [0.1]}, index=pd.to_datetime(["2020-01-02"])))
+    monkeypatch.setattr(runner_module, "_build_returns",
+                        lambda cfg: pd.DataFrame({"EQ.SPX": [0.0], "FX.EUR": [0.0]}, index=pd.to_datetime(["2020-01-02"])))
+    cfg = ExperimentConfig(
+        experiment_id="EXP-9999", hypothesis="h",
+        data=DataConfig(asset_class="returns_layer", instruments=["EQ.SPX", "FX.EUR"]),
+        signal=SignalConfig(module="unused"),
+        portfolio=PortfolioConfig(rule="vol_target", date_column="date", asset_column="instrument", signal_column="signal"),
+    )
+    with pytest.raises(ValueError, match="signal universe"):
+        runner_module._build_panels(cfg, pd.DataFrame())

@@ -145,7 +145,33 @@ class EquityUniverse(AssetUniverse):
         return {r["ticker"]: r["id"] for r in rows}
 
 
+class ReturnsLayerUniverse(AssetUniverse):
+    """Cross-asset excess returns from src.returns.layer (equity, US duration, FX).
+
+    Not price-based: returns_panel() reads layer.excess_returns() directly, so
+    columns are layer keys (EQ.SPX, RT.UST10, FX.EUR, ...), each market on its
+    own calendar (NaN on its non-trading days). Daily only.
+    """
+
+    asset_class = "returns_layer"
+    native_interval = "1d"
+
+    def asset_ids(self) -> dict[str, int]:
+        """Layer keys aren't asset ids (the plan's R1 catalogue isn't built); empty by design."""
+        return {}
+
+    def returns_panel(
+        self, resample: str | None = None, start: str | None = None, end: str | None = None
+    ) -> pd.DataFrame:
+        if resample is not None:
+            raise ValueError("returns_layer is daily; set data.resample to null")
+        from src.returns.layer import excess_returns   # lazy: keeps universe import light
+
+        return excess_returns(db, start=start, end=end)
+
+
 UNIVERSE_REGISTRY: dict[str, type[AssetUniverse]] = {
     "commodity": CommodityUniverse,
     "equity": EquityUniverse,
+    "returns_layer": ReturnsLayerUniverse,
 }

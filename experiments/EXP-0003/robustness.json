@@ -1,0 +1,793 @@
+{
+  "experiment_id": "EXP-0003",
+  "generated_at": "2026-10-27T00:47:39+00:00",
+  "git_sha": "c0fb340d472c3e0ee364f348455ad89ea337150e",
+  "n_trials": 1,
+  "n_trials_declared": 1,
+  "n_trials_ledger": 1,
+  "family": "tsmom",
+  "holdout_start": "2025-10-25",
+  "in_sample_end": "2025-10-24 00:00:00",
+  "n_obs": 9328,
+  "base": {
+    "sharpe": 0.5690545863454627,
+    "cost_bps": 2.0,
+    "lag": 1
+  },
+  "thresholds": {
+    "cost_multipliers": [
+      0.5,
+      1.0,
+      1.5,
+      2.0,
+      3.0,
+      5.0
+    ],
+    "lag_offsets": [
+      0,
+      1,
+      2
+    ],
+    "param_grid": {
+      "signal.parameters.lookbacks": [
+        [
+          21,
+          63,
+          252
+        ],
+        [
+          63,
+          252
+        ],
+        [
+          252
+        ]
+      ],
+      "signal.parameters.vol_com": [
+        30,
+        60,
+        90
+      ]
+    },
+    "crisis_windows": {
+      "gfc_2008": [
+        "2008-01-01",
+        "2009-06-30"
+      ],
+      "covid_2020": [
+        "2020-02-01",
+        "2020-06-30"
+      ],
+      "inflation_2022": [
+        "2022-01-01",
+        "2022-12-31"
+      ]
+    },
+    "n_boot": 2000,
+    "seed": 0,
+    "cost_kill_multiplier": 1.5,
+    "cost_flag_multiplier": 2.0,
+    "breakeven_flag_bps": 5.0,
+    "lag_kill_retention": 0.35,
+    "lag_flag_retention": 0.5,
+    "outlier_trim_frac": 0.01,
+    "positive_year_flag_frac": 0.55,
+    "half_sharpe_flag": -0.2,
+    "param_kill_frac": 0.6,
+    "deflated_sharpe_flag": 0.9,
+    "holdout_kill_sharpe": -0.25,
+    "wf_min_train_years": 5.0,
+    "wf_test_years": 1.0,
+    "wf_flag_ratio": 0.5,
+    "wf_kill_sharpe": 0.0
+  },
+  "checks": {
+    "cost_stress": {
+      "verdict": "PASS",
+      "reason": "breakeven cost 20.9 bps; survives 2.0x costs",
+      "detail": {
+        "base_cost_bps": 2.0,
+        "breakeven_bps": 20.871385110710545,
+        "sharpe_by_multiplier": {
+          "0.5": 0.599251715254015,
+          "1.0": 0.5690545863454627,
+          "1.5": 0.5388442215771398,
+          "2.0": 0.5086235808389702,
+          "3.0": 0.448163313939845,
+          "5.0": 0.3272496230809668
+        },
+        "sharpe_at_kill_multiplier": 0.5388442215771398,
+        "sharpe_at_flag_multiplier": 0.5086235808389702
+      }
+    },
+    "lag_sensitivity": {
+      "verdict": "PASS",
+      "reason": "Sharpe retains 103% at lag+1",
+      "detail": {
+        "sharpe_by_lag": {
+          "1": 0.5690545863454627,
+          "2": 0.5873945175526533,
+          "3": 0.587530550571715
+        },
+        "retention": 1.0322287732095647
+      }
+    },
+    "outliers": {
+      "verdict": "PASS",
+      "reason": "Sharpe 0.68 after dropping the best and worst 1% of periods",
+      "detail": {
+        "base_sharpe": 0.5690545863454627,
+        "trim_frac": 0.01,
+        "sharpe_excluding_tails": 0.6833574847323206,
+        "sharpe_excluding_top": -0.023116145765208485,
+        "sharpe_excluding_top_if_gaussian": 0.1416913125425589,
+        "sharpe_excluding_best_year": 0.5241301687894063,
+        "best_year": 1997
+      }
+    },
+    "subperiods": {
+      "verdict": "PASS",
+      "reason": "72% of years positive; both halves above -0.2",
+      "detail": {
+        "halves": {
+          "first_half": 0.9057862519939034,
+          "second_half": 0.22770481849943588
+        },
+        "decades": {
+          "1990s": 1.2569741142965853,
+          "2000s": 0.5337089684601618,
+          "2010s": 0.1623949240366315,
+          "2020s": 0.1717345956590003
+        },
+        "yearly_returns": {
+          "1990": 0.16890407929204243,
+          "1991": 0.23003624677703094,
+          "1992": 0.06065368011127159,
+          "1993": 0.10151093174359382,
+          "1994": 0.00661293057784218,
+          "1995": 0.23699562144787012,
+          "1996": 0.021427322274812033,
+          "1997": 0.2589868634121626,
+          "1998": 0.1840923995321191,
+          "1999": 0.11557016814563759,
+          "2000": 0.05993014096138616,
+          "2001": 0.11823406460354557,
+          "2002": 0.18610982076860894,
+          "2003": 0.12398101794023364,
+          "2004": 0.05050801519761006,
+          "2005": -0.08465864728459449,
+          "2006": -0.02211626887986473,
+          "2007": -0.025762298026164587,
+          "2008": 0.1753346152120181,
+          "2009": 0.0022691576237345856,
+          "2010": 0.08155580552024588,
+          "2011": 0.021359279664885156,
+          "2012": -0.014552656888674353,
+          "2013": 0.08117711614537582,
+          "2014": 0.042348800461743386,
+          "2015": -0.018130120545158834,
+          "2016": -0.0787055870527148,
+          "2017": 0.02027098685656825,
+          "2018": 6.734667502583669e-05,
+          "2019": -0.006053252634606876,
+          "2020": 0.08644267504027381,
+          "2021": -0.07561484722161171,
+          "2022": 0.18332514275290923,
+          "2023": 0.01604009863843947,
+          "2024": -0.05689189020182839,
+          "2025": -0.05334112102577593
+        },
+        "positive_year_fraction": 0.7222222222222222,
+        "crisis_windows": {
+          "gfc_2008": {
+            "n": 391,
+            "total_return": 0.13607963591538397
+          },
+          "covid_2020": {
+            "n": 107,
+            "total_return": 0.05440750461969812
+          },
+          "inflation_2022": {
+            "n": 260,
+            "total_return": 0.18332514275290923
+          }
+        }
+      }
+    },
+    "parameters": {
+      "verdict": "PASS",
+      "reason": "0% of 9 settings have Sharpe < 0; range [0.56, 0.67]",
+      "detail": {
+        "keys": [
+          "signal.parameters.lookbacks",
+          "signal.parameters.vol_com"
+        ],
+        "grid": [
+          {
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "n_obs": 9328,
+            "sharpe": 0.5754797855436306
+          },
+          {
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 60
+            },
+            "n_obs": 9328,
+            "sharpe": 0.5690545863454627
+          },
+          {
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 90
+            },
+            "n_obs": 9328,
+            "sharpe": 0.5571312773820701
+          },
+          {
+            "params": {
+              "signal.parameters.lookbacks": [
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "n_obs": 9328,
+            "sharpe": 0.6183996661578414
+          },
+          {
+            "params": {
+              "signal.parameters.lookbacks": [
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 60
+            },
+            "n_obs": 9328,
+            "sharpe": 0.6158231998649326
+          },
+          {
+            "params": {
+              "signal.parameters.lookbacks": [
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 90
+            },
+            "n_obs": 9328,
+            "sharpe": 0.6064976397930345
+          },
+          {
+            "params": {
+              "signal.parameters.lookbacks": [
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "n_obs": 9328,
+            "sharpe": 0.6649963362769865
+          },
+          {
+            "params": {
+              "signal.parameters.lookbacks": [
+                252
+              ],
+              "signal.parameters.vol_com": 60
+            },
+            "n_obs": 9328,
+            "sharpe": 0.6705296850286908
+          },
+          {
+            "params": {
+              "signal.parameters.lookbacks": [
+                252
+              ],
+              "signal.parameters.vol_com": 90
+            },
+            "n_obs": 9328,
+            "sharpe": 0.6673509226229855
+          }
+        ],
+        "failures": [],
+        "bad_fraction": 0.0
+      }
+    },
+    "walk_forward": {
+      "verdict": "PASS",
+      "reason": "OOS Sharpe 0.56 vs in-sample 0.67 over 31 window(s) from 1995-01-04; parameter changed 2x",
+      "detail": {
+        "oos_sharpe": 0.560201077170359,
+        "in_sample_sharpe": 0.6705296850286908,
+        "in_sample_params": {
+          "signal.parameters.lookbacks": [
+            252
+          ],
+          "signal.parameters.vol_com": 60
+        },
+        "in_sample_sharpe_oos_period": 0.6383050243980555,
+        "n_oos": 8029,
+        "oos_start": "1995-01-04",
+        "n_windows": 31,
+        "param_changes": 2,
+        "param_change_rate": 0.06666666666666667,
+        "windows": [
+          {
+            "train_end": "1995-01-03",
+            "test_end": "1996-01-03",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 1.0656314516962335,
+            "test_sharpe": 2.4116606610280638,
+            "n_test": 260
+          },
+          {
+            "train_end": "1996-01-03",
+            "test_end": "1997-01-02",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 1.2838597099710094,
+            "test_sharpe": 0.042202570098148734,
+            "n_test": 260
+          },
+          {
+            "train_end": "1997-01-02",
+            "test_end": "1998-01-02",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 1.1147847869558822,
+            "test_sharpe": 2.099839640032072,
+            "n_test": 260
+          },
+          {
+            "train_end": "1998-01-02",
+            "test_end": "1999-01-02",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 1.2525122577259493,
+            "test_sharpe": 1.5496212454425324,
+            "n_test": 259
+          },
+          {
+            "train_end": "1999-01-02",
+            "test_end": "2000-01-02",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 1.2873709657659709,
+            "test_sharpe": 1.1822999780576613,
+            "n_test": 260
+          },
+          {
+            "train_end": "2000-01-02",
+            "test_end": "2001-01-01",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 1.2772916761967952,
+            "test_sharpe": 0.5097858244189147,
+            "n_test": 261
+          },
+          {
+            "train_end": "2001-01-01",
+            "test_end": "2002-01-01",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 1.1928760667451583,
+            "test_sharpe": 1.0574406328687194,
+            "n_test": 260
+          },
+          {
+            "train_end": "2002-01-01",
+            "test_end": "2003-01-01",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 1.178407414629392,
+            "test_sharpe": 1.5691002492324353,
+            "n_test": 261
+          },
+          {
+            "train_end": "2003-01-01",
+            "test_end": "2004-01-01",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 1.2101093311439384,
+            "test_sharpe": 1.4761880195143875,
+            "n_test": 259
+          },
+          {
+            "train_end": "2004-01-01",
+            "test_end": "2004-12-31",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 1.2226446709796441,
+            "test_sharpe": 0.5226043526460297,
+            "n_test": 261
+          },
+          {
+            "train_end": "2004-12-31",
+            "test_end": "2005-12-31",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 1.1769340303812468,
+            "test_sharpe": -0.8642527396351591,
+            "n_test": 260
+          },
+          {
+            "train_end": "2005-12-31",
+            "test_end": "2006-12-31",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 1.0606878732088785,
+            "test_sharpe": -0.10344050711276845,
+            "n_test": 259
+          },
+          {
+            "train_end": "2006-12-31",
+            "test_end": "2007-12-31",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 0.993865963198749,
+            "test_sharpe": -0.17717766003472254,
+            "n_test": 260
+          },
+          {
+            "train_end": "2007-12-31",
+            "test_end": "2008-12-30",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 0.916266212768864,
+            "test_sharpe": 1.2165540806750927,
+            "n_test": 261
+          },
+          {
+            "train_end": "2008-12-30",
+            "test_end": "2009-12-30",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 0.9346271662047995,
+            "test_sharpe": 0.05097828190748293,
+            "n_test": 261
+          },
+          {
+            "train_end": "2009-12-30",
+            "test_end": "2010-12-30",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 0.9030211618387253,
+            "test_sharpe": 0.6875813720825695,
+            "n_test": 261
+          },
+          {
+            "train_end": "2010-12-30",
+            "test_end": "2011-12-30",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 0.8917027786606818,
+            "test_sharpe": 0.20367953266123376,
+            "n_test": 261
+          },
+          {
+            "train_end": "2011-12-30",
+            "test_end": "2012-12-29",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 0.8615178656603208,
+            "test_sharpe": -0.11263674543374431,
+            "n_test": 260
+          },
+          {
+            "train_end": "2012-12-29",
+            "test_end": "2013-12-29",
+            "params": {
+              "signal.parameters.lookbacks": [
+                21,
+                63,
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 0.8249925542338983,
+            "test_sharpe": 0.7467845134996564,
+            "n_test": 260
+          },
+          {
+            "train_end": "2013-12-29",
+            "test_end": "2014-12-29",
+            "params": {
+              "signal.parameters.lookbacks": [
+                252
+              ],
+              "signal.parameters.vol_com": 30
+            },
+            "train_sharpe": 0.8798282706047541,
+            "test_sharpe": 0.5714670210194409,
+            "n_test": 261
+          },
+          {
+            "train_end": "2014-12-29",
+            "test_end": "2015-12-29",
+            "params": {
+              "signal.parameters.lookbacks": [
+                252
+              ],
+              "signal.parameters.vol_com": 60
+            },
+            "train_sharpe": 0.8761721859591697,
+            "test_sharpe": 0.7199914524627864,
+            "n_test": 261
+          },
+          {
+            "train_end": "2015-12-29",
+            "test_end": "2016-12-28",
+            "params": {
+              "signal.parameters.lookbacks": [
+                252
+              ],
+              "signal.parameters.vol_com": 60
+            },
+            "train_sharpe": 0.869966667616674,
+            "test_sharpe": -0.8090486049095805,
+            "n_test": 261
+          },
+          {
+            "train_end": "2016-12-28",
+            "test_end": "2017-12-28",
+            "params": {
+              "signal.parameters.lookbacks": [
+                252
+              ],
+              "signal.parameters.vol_com": 60
+            },
+            "train_sharpe": 0.7971082246039181,
+            "test_sharpe": 0.7458634845112215,
+            "n_test": 261
+          },
+          {
+            "train_end": "2017-12-28",
+            "test_end": "2018-12-28",
+            "params": {
+              "signal.parameters.lookbacks": [
+                252
+              ],
+              "signal.parameters.vol_com": 60
+            },
+            "train_sharpe": 0.7953705433586392,
+            "test_sharpe": -0.7311884704055897,
+            "n_test": 261
+          },
+          {
+            "train_end": "2018-12-28",
+            "test_end": "2019-12-28",
+            "params": {
+              "signal.parameters.lookbacks": [
+                252
+              ],
+              "signal.parameters.vol_com": 60
+            },
+            "train_sharpe": 0.7386606633272449,
+            "test_sharpe": 1.1517409588319218,
+            "n_test": 260
+          },
+          {
+            "train_end": "2019-12-28",
+            "test_end": "2020-12-27",
+            "params": {
+              "signal.parameters.lookbacks": [
+                252
+              ],
+              "signal.parameters.vol_com": 60
+            },
+            "train_sharpe": 0.7507048035503371,
+            "test_sharpe": 0.8395496617669947,
+            "n_test": 260
+          },
+          {
+            "train_end": "2020-12-27",
+            "test_end": "2021-12-27",
+            "params": {
+              "signal.parameters.lookbacks": [
+                252
+              ],
+              "signal.parameters.vol_com": 60
+            },
+            "train_sharpe": 0.7535246813896355,
+            "test_sharpe": -0.2807046991506912,
+            "n_test": 261
+          },
+          {
+            "train_end": "2021-12-27",
+            "test_end": "2022-12-27",
+            "params": {
+              "signal.parameters.lookbacks": [
+                252
+              ],
+              "signal.parameters.vol_com": 60
+            },
+            "train_sharpe": 0.7152998636480048,
+            "test_sharpe": 1.4474721450384613,
+            "n_test": 261
+          },
+          {
+            "train_end": "2022-12-27",
+            "test_end": "2023-12-27",
+            "params": {
+              "signal.parameters.lookbacks": [
+                252
+              ],
+              "signal.parameters.vol_com": 60
+            },
+            "train_sharpe": 0.7391869789384703,
+            "test_sharpe": 0.3064982738886745,
+            "n_test": 261
+          },
+          {
+            "train_end": "2023-12-27",
+            "test_end": "2024-12-26",
+            "params": {
+              "signal.parameters.lookbacks": [
+                252
+              ],
+              "signal.parameters.vol_com": 60
+            },
+            "train_sharpe": 0.7288473593833794,
+            "test_sharpe": 0.08262669386341465,
+            "n_test": 261
+          },
+          {
+            "train_end": "2024-12-26",
+            "test_end": "2025-10-24",
+            "params": {
+              "signal.parameters.lookbacks": [
+                252
+              ],
+              "signal.parameters.vol_com": 60
+            },
+            "train_sharpe": 0.7085261119349882,
+            "test_sharpe": -1.3213884907910172,
+            "n_test": 216
+          }
+        ],
+        "failures": [],
+        "decay_ratio": 0.8354605167799379
+      }
+    },
+    "statistical": {
+      "verdict": "PASS",
+      "reason": "deflated Sharpe 1.00 at n_trials=1; CI excludes 0",
+      "detail": {
+        "sharpe": 0.5690545863454627,
+        "ci_low": 0.24899182693869687,
+        "ci_high": 0.8895379400669202,
+        "deflated_sharpe": 0.9997184096342011,
+        "n_trials": 1
+      }
+    },
+    "holdout": {
+      "verdict": "SKIPPED",
+      "reason": "holdout from 2025-10-25 is locked (run with --unlock-holdout, once, when in-sample checks are final)",
+      "detail": {}
+    }
+  },
+  "overall": "NEEDS_REVIEW"
+}

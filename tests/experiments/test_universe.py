@@ -101,3 +101,22 @@ def test_returns_panel_resample_matches_weekly_prices_with_trend(mem_db):
 def test_returns_panel_empty_universe_returns_empty_frame(mem_db):
     panel = EquityUniverse().returns_panel()
     assert panel.empty
+
+
+def test_returns_layer_universe_reads_the_layer(monkeypatch):
+    import src.returns.layer as layer_module
+    from src.experiments.universe import UNIVERSE_REGISTRY
+
+    calls = {}
+
+    def fake(database, keys=None, start=None, end=None, pre_coverage="drop"):
+        calls.update(start=start, end=end)
+        return pd.DataFrame({"EQ.SPX": [0.01]}, index=pd.to_datetime(["2020-01-02"]))
+
+    monkeypatch.setattr(layer_module, "excess_returns", fake)
+    uni = UNIVERSE_REGISTRY["returns_layer"]()
+    out = uni.returns_panel(start="1990-01-01")
+    assert list(out.columns) == ["EQ.SPX"] and calls["start"] == "1990-01-01"
+    assert uni.asset_ids() == {}
+    with pytest.raises(ValueError, match="daily"):
+        uni.returns_panel(resample="W-MON")

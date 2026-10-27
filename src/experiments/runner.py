@@ -37,7 +37,7 @@ import pandas as pd
 from src.backtest.backtest import BacktestReport, run_backtest
 from src.experiments import trials
 from src.experiments.config import ExperimentConfig, load_config, save_config
-from src.experiments.portfolio import decile_long_short, equal_weight_long_basket
+from src.experiments.portfolio import decile_long_short, equal_weight_long_basket, vol_target_weights
 from src.experiments.registry import update_experiment
 from src.experiments.report import render_research_note
 from src.experiments.universe import UNIVERSE_REGISTRY
@@ -61,6 +61,23 @@ PORTFOLIO_REGISTRY: dict[str, Any] = {
         signal_column=cfg.signal_column,
         n_deciles=cfg.n_deciles,
         min_names=cfg.min_names,
+    ),
+    "vol_target": lambda signal_df, cfg: vol_target_weights(
+        signal_df,
+        date_column=cfg.date_column,
+        asset_column=cfg.asset_column,
+        signal_column=cfg.signal_column,
+        vol_column=cfg.vol_column,
+        group_column=cfg.group_column,
+        return_column=cfg.return_column,
+        trading_column=cfg.trading_column,
+        target_vol=cfg.target_vol,
+        port_vol_window=cfg.port_vol_window,
+        port_vol_min_obs=cfg.port_vol_min_obs,
+        scaler_bounds=(cfg.scaler_low, cfg.scaler_high),
+        max_gross=cfg.max_gross,
+        rebalance=cfg.rebalance,
+        hold_limit=cfg.hold_limit,
     ),
 }
 
@@ -128,13 +145,26 @@ def _build_weights(config: ExperimentConfig, signal_df: pd.DataFrame) -> pd.Data
 
 def _build_returns(config: ExperimentConfig) -> pd.DataFrame:
     universe = UNIVERSE_REGISTRY[config.data.asset_class]()
-    return universe.returns_panel(
+    panel = universe.returns_panel(
         resample=config.data.resample, start=config.data.start, end=config.data.end
     )
+    if config.data.instruments is not None:
+        missing = [k for k in config.data.instruments if k not in panel.columns]
+        if missing:
+            raise ValueError(f"data.instruments not in the {config.data.asset_class} returns panel: {missing}")
+        panel = panel[list(config.data.instruments)].dropna(how="all")
+    return panel
 
 
 def _build_panels(config: ExperimentConfig, signal_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    return _build_weights(config, signal_df), _build_returns(config)
+    weights, returns = _build_weights(config, signal_df), _build_returns(config)
+    if config.data.instruments is not None and set(weights.columns) != set(config.data.instruments):
+        # apply_costs would silently use the intersection, mis-sizing a rule that divides risk by N.
+        raise ValueError(
+            f"signal universe {sorted(weights.columns)} != data.instruments {sorted(config.data.instruments)}; "
+            "set the same list in signal.parameters"
+        )
+    return weights, returns
 
 
 def _apply_holdout(

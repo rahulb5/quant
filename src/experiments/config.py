@@ -53,10 +53,14 @@ class ClassificationConfig:
 
 @dataclass
 class DataConfig:
+    """`instruments` restricts the returns panel to these columns (used by the
+    returns_layer universe; None = every column the universe provides)."""
+
     asset_class: str
     resample: str | None = None
     start: str | None = None
     end: str | None = None
+    instruments: list[str] | None = None
 
 
 @dataclass
@@ -75,6 +79,19 @@ class PortfolioConfig:
     trend_filter: str = "trend_none"
     n_deciles: int = 10
     min_names: int = 50
+    # vol_target rule (portfolio.vol_target_weights); ignored by the other rules.
+    vol_column: str = "vol"
+    group_column: str = "sleeve"
+    return_column: str = "ret"
+    trading_column: str = "trading"
+    target_vol: float = 0.10
+    port_vol_window: int = 252
+    port_vol_min_obs: int = 126
+    scaler_low: float = 0.5
+    scaler_high: float = 5.0
+    max_gross: float = 8.0
+    rebalance: str = "W-FRI"
+    hold_limit: int = 10
 
 
 @dataclass
