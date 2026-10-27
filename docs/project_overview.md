@@ -2,7 +2,7 @@
 
 **Purpose of this file:** a self-contained description of what is being built, why, and where it stands,
 written for a reviewer who has no access to the repository. Nothing here requires reading the code.
-Facts are as of 2026-10-24 (commit `33d2906`).
+Facts are as of 2026-10-26.
 
 ---
 
@@ -32,36 +32,40 @@ the researcher owns hypotheses, economic reasoning, interpretation and any capit
 ## 2. Tech stack
 
 - Python 3.12, pandas, statsmodels, pytest.
-- **DuckDB** single file (`data/quant.db`) as the only database. Append-only versioned migrations (currently v11).
+- **DuckDB** single file (`data/quant.db`) as the only database. Append-only versioned migrations (currently v12).
 - **Streamlit** read-only dashboard.
 - Jupyter notebooks for exploratory research; mature logic is then promoted into modules.
 - Experiment artifacts as plain files (YAML, JSON, Parquet, PNG, Markdown) in `experiments/EXP-000N/`.
-- About 730 tests, all passing.
+- About 820 tests, all passing.
 
 ## 3. Architecture
 
 ```
  Collectors ──► DuckDB ──► Signals ──► Experiment runner ──► Backtest stack ──► Artifacts + registry
  (Yahoo, FRED,   (single   (modules     (config → weights     (costs, perf,      (files per experiment
-  CFTC COT)      file)      in src/      → returns)            conditioning,      + queryable table
-                    │       signals)                            regimes)          + trial ledger)
-                    │                                              ▲                     │
-                    ▼                                              │                     ▼
-              Macro layer ─────────── macro regimes, state ────────┘      Robustness suite  Streamlit dashboard
-              (point-in-time state,   exposure                            (try to kill it)  (read-only)
+  CFTC COT,      file)      in src/      → returns)            conditioning,      + queryable table
+  BIS)              │       signals)        ▲                   regimes)          + trial ledger)
+                    │                       │                      ▲                     │
+                    ├──► Returns layer ─────┘ (daily excess        │                     ▼
+                    │    returns: equity, US duration, FX)         │     Robustness suite  Streamlit dashboard
+                    ▼                                              │     (try to kill it)  (read-only)
+              Macro layer ─────────── macro regimes, state ────────┘
+              (point-in-time state,   exposure
                rates, market, regimes)
 ```
 
 ### 3.1 Data layer
 
-Six collectors share a `BaseCollector` (error handling plus an audit log table `data_fetch_log`):
+Eight collectors share a `BaseCollector` (error handling plus an audit log table `data_fetch_log`):
 
 | Source | Content | Asset-ID scheme |
 |---|---|---|
 | Yahoo Finance | Current S&P 500 constituents (530 names), 15 equity indices | ids 1–530 constituents, 100001–100015 indices |
+| Yahoo Finance | Total-return sources: `^SP500TR`, `^RUTTR` and 8 local-currency distributing ETFs, with their cash dividends in a `dividends` table | 100016–100017, 500xxx |
 | Yahoo Finance | Commodity futures (front-month continuous) | 300xxx |
-| Yahoo Finance | S&P GSCI excess-return indices | 400xxx |
-| Yahoo Finance | Currencies | — |
+| Yahoo Finance | S&P GSCI excess-return indices (Yahoo serves almost no history for these) | 400xxx |
+| Twelve Data | Currencies (29 pairs, majors from 1971) | 200xxx |
+| BIS | Daily central bank policy rates for 12 developed markets, from 1946–1986 | `macro_series` (`BIS.CBPOL.<area>`) |
 | FRED/ALFRED | 58 macro series, **all vintages stored for revisable series** (so the value as published on any past date, and the true release dates, are available) | `macro_series` / `macro_observations` |
 | CFTC | Commitments of Traders for a curated catalog of 35 contracts (energy, metals, ags, softs, rates, equity index, FX, VIX); legacy, disaggregated and TFF reports, weekly | `cot_positions` |
 
@@ -83,15 +87,41 @@ Data repairs done in the last week:
 Known limitations: no raw/immutable snapshot layer (a re-fetch overwrites in place; each experiment records
 `data_as_of` but the data is not frozen); equity universe is **current** S&P 500 constituents only, so there is
 survivorship bias; commodity "continuous" futures have no roll methodology, so a contract roll shows up as a
-one-day return jump, and carry/curve research is blocked on a paid data source.
+one-day return jump, and carry/curve research is blocked on a paid data source. The researcher has deferred new
+data sources (2026-10-25) in favour of building strategies on what exists.
+
+### 3.1b Returns layer (`src/returns/`)
+
+One function, `excess_returns(db, keys)`, gives strategies daily **excess returns over cash** for 23 instruments:
+- 10 equity indices: total return minus local cash, in local currency;
+- 4 constant-maturity US Treasuries (2/5/10/30y): built from FRED yields as coupon carry + rolldown + repricing;
+- 9 G10 currencies vs USD: spot plus the BIS policy-rate differential.
+
+Each market keeps its own trading calendar.
+
+Construction details a reviewer should know:
+- **Dividends.** S&P 500 and Russell 2000 use published total-return indices; DAX is already total return. The
+  other indices take a trailing 12-month yield from a local ETF's cash dividends; on the S&P 500 this reproduces
+  the official TR index to 0.07 pp/yr.
+- **Data repairs.** Yahoo's adjusted close was wrong for two non-US ETFs. Twelve Data's 2008 EURUSD has
+  day/month-swapped rows. Nine one-day bad prints are repaired with the neighbours' midpoint; this uses the next
+  day's price, so it repairs history and isn't a live rule.
+- **Carry caveats.** BIS policy rates aren't money-market rates in some periods: Swiss and Japanese discount rates
+  before ~2000, and the ECB's main refinancing rate in 2008–24, which sat 50–75 bp above overnight rates. These are
+  flagged, not corrected.
+- **Validation.** The bond returns match known yearly returns, e.g. 10y −16.4% in 2022, +22.2% in 2008. The planned
+  check against IEF/TLT is deferred (it needs new data).
 
 ### 3.2 Signals
 
 A signal is a module under `src/signals/` exposing `load_data()`, `calculate_signal(*data, config)` and a
-`SignalConfig`. Two exist:
+`SignalConfig`. Three exist:
 
 - `cot_commercial_positioning`: 52-week rolling percentile of commercial net positioning in commodity futures.
 - `formulaic_alpha_19`: one of the Kakushadze "101 Formulaic Alphas", the best of a 10-alpha screen.
+- `tsmom`: time-series momentum (trend) across equity, US duration and FX. It is the mean of the 1-, 3- and
+  12-month return signs, with EWMA vol (Moskowitz, Ooi and Pedersen 2012). Definitions were frozen before any
+  backtest (`docs/research/tsmom_definitions_v1.md`).
 
 A third idea (yield-curve regime) is still notebook-only because the researcher hasn't settled on a variant.
 The workflow is: explore in a notebook → once a concrete signal spec is resolved, promote it to a module.
@@ -119,9 +149,15 @@ classification, diagnostics) plus a runner that produces: `results.json`, `diagn
 metrics. The runner stamps the git SHA and `data_as_of`, and supports a **holdout period** that is dropped before
 backtesting and scored only once via an explicit `--unlock-holdout` flag, then frozen.
 
-- Universes (`AssetUniverse` subclasses): commodity, equity. Adding crypto = one subclass.
-- Portfolio rules (deliberately narrow, config-driven): equal-weight long basket above a threshold; cross-sectional
-  decile long/short, dollar-neutral. There is no general optimizer or risk layer.
+- Universes (`AssetUniverse` subclasses): commodity, equity, and `returns_layer` (the cross-asset excess returns
+  of 3.1b). Adding crypto = one subclass.
+- Portfolio rules (deliberately narrow, config-driven):
+  - equal-weight long basket above a threshold;
+  - cross-sectional decile long/short, dollar-neutral;
+  - **vol-targeted time-series positions**: equal risk per sleeve and instrument, a realised-vol portfolio scaler
+    to 10%, gross cap 8×, weekly calendar rebalance on each instrument's own trading days, exit on stale data.
+
+  There is no general optimizer or risk layer.
 - **Macro diagnostics.** By default every experiment is now conditioned on all nine regimes (six macro and market
   regimes from 3.7 plus the three in 3.3), reported by layer with episode counts. Optionally it also regresses the
   strategy's next-period return on the 12-variable macro state vector ("state exposure").
@@ -133,9 +169,11 @@ backtesting and scored only once via an explicit `--unlock-holdout` flag, then f
 
 ### 3.5 Robustness suite
 
-Run per experiment (`run_robustness.py`). Seven checks, each `PASS`/`FLAG`/`KILL`/`SKIPPED`: cost stress (and
+Run per experiment (`run_robustness.py`). Eight checks, each `PASS`/`FLAG`/`KILL`/`SKIPPED`: cost stress (and
 breakeven bps), lag sensitivity, outlier trimming, subperiods (halves, decades, crisis windows), parameter grid,
-statistical (bootstrap CI and deflated Sharpe), and holdout. The deflated Sharpe uses the larger of the declared
+**walk-forward** (expanding ≥5-year windows pick the best grid point, scored on the next year; FLAG if
+out-of-sample Sharpe < half in-sample, KILL if ≤ 0), statistical (bootstrap CI and deflated Sharpe), and
+holdout. Walk-forward only tests selection *within* a config's grid, not choices made across signals. The deflated Sharpe uses the larger of the declared
 trial count and the ledger's count, so a hand-set number can only raise it. The overall verdict is `KILLED` or
 `NEEDS_REVIEW`, never "approved".
 
@@ -214,9 +252,8 @@ recessions, known stress episodes, other vintages of the same data, and each oth
 - One assumption failed and was replaced: continuing claims had been treated as unrevised, but they are revised
   for weeks after release, so they now use real vintages from 2009 and a lagged approximation before.
 
-**Not built yet:** a walk-forward check in the robustness suite, and re-running the two live experiments with
-the new diagnostics (both are locked as complete; the researcher has to choose between overwriting them and
-giving them new IDs).
+**Not done yet:** re-running EXP-0001/0002 with the new diagnostics (both are locked as complete; the researcher
+has to choose between overwriting them and giving them new IDs). EXP-0003 already has them.
 
 **Explicitly out of scope:** a global / cross-country macro layer (FRED's international series are stale; it needs
 a new collector), consensus-forecast surprises (paid data), r\* estimates (not available as of past dates),
@@ -247,10 +284,27 @@ for lookahead), record the outcome, stop.
 |---|---|---|---|
 | EXP-0001 | Extreme commercial net-long positioning (52-week percentile ≥ 90) in 11 commodity futures predicts positive forward weekly returns | Sharpe 0.27, CAGR 4.7%, **max drawdown −77%**, t-stat 1.2, 2006–2026, weekly | `NEEDS_REVIEW` |
 | EXP-0002 | Formulaic alpha #19 as a daily decile long/short on S&P 500 constituents | Sharpe 0.66, CAGR 8.6%, t-stat 3.4, 2000–2026, 1 bp costs; **cost breakeven only about 7 bps** | `NEEDS_REVIEW` |
+| EXP-0003 | Standard trend following (time-series momentum) across 6 equity indices, 4 US Treasury maturities and 6 G10 currencies earns a positive risk-adjusted excess return | Sharpe 0.57, t-stat 3.5, CAGR 5.5%, vol 10.4%, max drawdown −24%, 1990–2025, 2 bp costs (breakeven 21 bp); holdout from 2025-10-25 still locked | `NEEDS_REVIEW`, all 7 scored checks PASS |
 
-Honest read: neither is a validated edge. EXP-0001's return distribution is extreme (best day +119%,
+**EXP-0003 (trend baseline)** is the first experiment built end-to-end on frozen definitions. Points to weigh:
+- **Robustness.** Every grid variant has a Sharpe of 0.56–0.67; the standard setting is the weakest of them, so the
+  result wasn't selected. Walk-forward out-of-sample Sharpe is 0.56 vs 0.67.
+- **Diversification and crisis behaviour.** Daily correlation with the S&P 500 is −0.16. It returned +17.5% in 2008
+  and +18.3% in 2022, and averaged +5.7% in the S&P 500's 10 worst months (index −11.3%).
+- **Sleeves.** Duration contributes most (Sharpe 0.57 vs FX 0.32 and equity 0.29), and the sleeves are nearly
+  uncorrelated (0.08–0.15).
+- **Decay.** Sharpe was 1.26 in the 1990s, 0.53 in the 2000s, 0.16 in the 2010s and 0.17 in the 2020s, matching
+  the industry's weak post-2010 trend decade. Most of the full-sample Sharpe is pre-2010.
+- **Bond bull market.** Part of the duration sleeve's contribution is the 35-year bond bull market ("long bonds")
+  rather than trend skill. Separating the two is open.
+- **Missing pieces.** No commodities, so it's not a full CTA replica, and the SG Trend comparison is deferred (no data).
+
+**Walk-forward on the older experiments** (computed read-only, not stored in their artifacts): EXP-0001 PASS
+(OOS 0.39 vs 0.47), EXP-0002 PASS (OOS 0.52 vs 0.55). It can't see that EXP-0002 was the best of 10 alphas.
+
+Honest read on EXP-0001 and EXP-0002: neither is a validated edge. EXP-0001's return distribution is extreme (best day +119%,
 excess kurtosis 275). That looks like a data or return-construction artifact in the continuous futures series
-and **has not been investigated**. EXP-0002 carries survivorship bias and is cost-fragile. Neither has a
+and **has not been investigated**. The likely cause is WTI's negative settlement on 2020-04-20 plus roll gaps. EXP-0002 carries survivorship bias and is cost-fragile. Neither has a
 holdout (both predate the mechanism); data arriving after the freeze date is meant to serve as their
 out-of-sample test. EXP-0002's stored results cover 503 names; a re-run would cover the current 530. Neither has
 been re-run with the macro diagnostics, so there are **no macro-conditioned results yet**. The value so far is
@@ -258,32 +312,44 @@ the *pipeline* closing the loop, not the strategies.
 
 ## 5. What's next
 
-1. Decide how to re-run EXP-0001 / EXP-0002 with the macro diagnostics (overwrite vs new IDs), and run them.
-2. Walk-forward check in the robustness suite: pick the best grid point on expanding training windows, score it
-   on the next year, and flag if out-of-sample Sharpe falls below half the in-sample one.
-3. The first macro-conditioned research: how assets and the two strategies behave across the state and regimes,
-   run once on the frozen definitions.
-4. Smaller items: tests for the three untested collectors, a realistic-cost re-run of EXP-0002, and investigating
-   EXP-0001's tails.
+The cross-asset plan (`docs/plans/cross_asset_strategies.md`) now drives the work. Its goal is an interview-facing
+research portfolio plus a forward-tracked record that could later be traded with micro futures. Its order is:
+returns layer (done for equity/rates/FX) → trend baseline (done, EXP-0003) → **macro-driven duration timing**
+(the flagship, using the point-in-time macro layer) → G10 FX carry → a portfolio/risk layer and paper trading.
+
+1. **Forward tracking for EXP-0003:** a daily, append-only log of target positions, ideally pushed to a public repo
+   so the timestamps are credible. Open decision: public or local.
+2. **The researcher's review of EXP-0003,** then the one-time holdout unlock.
+3. **Phase 2, macro duration timing:** its own plan, with definitions frozen before any returns are seen, and
+   reported as alpha beyond the trend stream and beyond plain carry + rolldown.
+4. **Carried over:** the EXP-0001/0002 re-run decision; tests for the three untested collectors; a realistic-cost
+   re-run of EXP-0002; investigating EXP-0001's tails.
 
 ## 6. Longer-term roadmap (from the build plan)
 
-Completed: repository audit, experiment registry, robustness engine, read-only dashboard, point-in-time macro
-layer, trial ledger, agent guardrails.
+Completed: repository audit, experiment registry, robustness engine (now with walk-forward), read-only dashboard,
+point-in-time macro layer, trial ledger, agent guardrails, cross-asset returns layer (equity/rates/FX), trend
+baseline.
 Not started: a general portfolio/risk layer (CVXPY), a paper-trading engine, an AI-agent tool surface
 (`search_experiments()`, `create_experiment()` etc.), a raw/processed data split with dataset metadata, a
-futures roll methodology, a global macro layer, and equity style factors / walk-forward validation in robustness.
-The build plan's intended first flagship project is **commodity curve carry**, which is blocked on paid data.
+futures roll methodology, a global macro layer, and equity style factors in robustness.
+The build plan's original flagship, **commodity curve carry**, is blocked on paid data. Cheap options were
+identified (Databento's free credit for CME contracts from 2010; Norgate at about $270/year for deeper history),
+but new data is deferred for now.
 
 ## 7. Known weaknesses and risks (please challenge these)
 
 1. **Multiple-testing exposure.** EXP-0001 declares `n_trials=96` (grid over windows and thresholds); EXP-0002
-   was picked as the best of 10 alphas. Both counts are still self-reported: the trial ledger exists, but both
-   experiments predate it and it holds no rows yet. Notebook exploration is counted only if logged.
+   was picked as the best of 10 alphas. Both counts are still self-reported, because both experiments predate the
+   trial ledger. EXP-0003 is the first logged in the ledger (family `tsmom`, 1 counted trial, its grid recorded but
+   not counted). Notebook exploration is counted only if logged.
 2. **Survivorship bias** in the equity universe.
 3. **Return-series quality for futures** (see EXP-0001's extreme tails; no roll adjustment).
 4. **Reproducibility gaps:** no frozen data snapshots; `git_sha` records HEAD, not uncommitted changes.
-5. **Cost realism:** flat 1 bp one-way for everything.
+5. **Cost realism:** flat 1 bp one-way for EXP-0001/0002, flat 2 bp for EXP-0003; no per-instrument costs.
+5b. **Returns-layer approximations:** bond returns come from yields, not futures. FX carry uses policy rates. Non-US
+   equity dividends come from ETFs (net of fees and withholding). Markets close at different times. The bond-ETF
+   validation is still deferred.
 6. **Regime researcher-degrees-of-freedom:** thresholds (±25 bp policy, 0.5 pp Sahm, terciles, 21-day
    persistence) come from convention and were frozen before returns were looked at, but the 21-day rule was
    added after a validation pass. Any further change is supposed to need a written reason and a new trial-family
@@ -307,4 +373,9 @@ The build plan's intended first flagship project is **commodity curve carry**, w
 - Is a flat cost assumption acceptable at this stage, or should cost modeling be a priority before more signals?
 - Which should come next: macro-conditioned research on the existing strategies, investigating EXP-0001's tails,
   building the raw/processed data split, or adding new signals?
-- Is the robustness suite missing a check that commonly kills strategies in practice (beyond walk-forward)?
+- Is the robustness suite missing a check that commonly kills strategies in practice?
+- For the trend baseline: how should the duration sleeve's contribution be split between trend skill and the
+  1990–2020 bond bull market? And is a realised-vol portfolio scaler (rather than a covariance model) acceptable
+  for a baseline?
+- Given trend's weak 2010s, is the right flagship macro-driven duration timing, or something less correlated
+  with trend?
